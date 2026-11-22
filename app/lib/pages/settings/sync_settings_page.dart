@@ -52,6 +52,10 @@ class _Strings {
   final String syncNow;
   final String folderRequested;
   final String privacy;
+  final String consentStatus;
+  final String waitingPeer;
+  final String activeTwoWay;
+  final String featureOff;
 
   const _Strings({
     required this.title,
@@ -86,23 +90,27 @@ class _Strings {
     required this.syncNow,
     required this.folderRequested,
     required this.privacy,
+    required this.consentStatus,
+    required this.waitingPeer,
+    required this.activeTwoWay,
+    required this.featureOff,
   });
 
   static const en = _Strings(
     title: 'Paired Sync',
-    intro: 'Sync with one trusted device: clipboard auto-sync on copy (text and images) plus a shared folder that syncs new/changed files both ways.',
+    intro: 'Three steps: (1) Favorite the same device on BOTH devices. (2) Turn on a feature below on BOTH devices. (3) Only changes made after setup are synced — nothing is sent until the other device has agreed.',
     introNote:
-        'Both devices must select each other here and be on the same network. On Android, turning sync on keeps LocalSend running in the background (persistent notification) so folder sync continues with the app closed. Reading the clipboard on Android still only works while the app is open.',
-    pairedDevice: 'Paired device',
+        'If the other device has not favorited this device or has not enabled the same feature, sync attempts are rejected silently there and are not retried for the same content (no spam). After both sides are set up, use the manual sync buttons once to retry. On Android, turning sync on keeps LocalSend running in the background; reading the clipboard still only works while LocalSend is open, so after copying in another app, open LocalSend once and it will catch up.',
+    pairedDevice: '1. Paired device',
     noFavorites: 'No favorites yet. Tap the heart on a device in the Send tab to favorite it (it becomes the sync peer automatically), then come back here.',
     online: 'Online',
     offline: 'Offline (will retry)',
     none: 'None',
     peer: 'Peer',
-    clipboardSync: 'Clipboard sync',
+    clipboardSync: '2. Clipboard sync',
     autoClipboard: 'Auto-sync clipboard on copy',
     clipboardNote:
-        'Text up to 16 KB and images up to 8 MB. Desktop works while the app runs (even minimized to tray). On Android the app stays alive in the background, but the OS only lets apps read the clipboard while in the foreground, so copy while LocalSend is open.',
+        'The clipboard you already have is NOT sent at setup; the next copy is. Text up to 16 KB and images up to 8 MB. Desktop works while the app runs (even minimized to tray). On Android, copy in the other app, then open LocalSend once: it reads the clipboard when it comes to the foreground and sends it.',
     autoSync: 'Auto-sync',
     running: 'running',
     stopped: 'stopped',
@@ -112,9 +120,9 @@ class _Strings {
     error: 'Error',
     sendClipboardNow: 'Send clipboard now',
     clipboardRequested: 'Clipboard sync requested',
-    folderSync: 'Shared folder sync',
+    folderSync: '3. Shared folder sync',
     autoFolder: 'Auto-sync shared folder',
-    folderNote: 'New and changed files sync both ways (subfolders preserved). Deletions are not synced. If both sides edit the same file, last write wins.',
+    folderNote: 'Pick the folder first, then turn this on. Files already in the folder are NOT sent at setup; only files created or changed afterwards sync both ways (subfolders preserved). "Sync now" sends the current content once, explicitly. Deletions are not synced; if both sides edit the same file, last write wins.',
     noFolder: '(no folder selected)',
     chooseFolder: 'Choose folder',
     clearFolder: 'Clear folder',
@@ -123,23 +131,27 @@ class _Strings {
     syncNow: 'Sync now',
     folderRequested: 'Folder sync requested',
     privacy: 'Privacy: clipboard may contain passwords or one-time codes. Keep sync off unless you trust the peer. Sync uses the same encrypted connection as file transfers.',
+    consentStatus: 'Two-way status',
+    waitingPeer: 'Waiting for the other device (it must favorite this device and enable this feature too)',
+    activeTwoWay: 'Active: both devices agreed',
+    featureOff: 'Off',
   );
 
   static const vi = _Strings(
     title: 'Đồng bộ theo cặp',
-    intro: 'Đồng bộ với một thiết bị tin cậy: tự động đồng bộ clipboard khi copy (cả chữ và hình ảnh), cộng thêm một thư mục chung tự đồng bộ file mới/thay đổi theo cả hai chiều.',
+    intro: 'Ba bước: (1) Bấm tim cùng một thiết bị trên CẢ HAI máy. (2) Bật tính năng bên dưới trên CẢ HAI máy. (3) Chỉ thay đổi sau khi thiết lập mới được đồng bộ — chưa máy nào gửi gì cho đến khi máy kia đồng ý.',
     introNote:
-        'Cả hai thiết bị phải chọn nhau tại đây và dùng chung một mạng. Trên Android, bật đồng bộ sẽ giữ LocalSend chạy nền (có thông báo thường trực) để thư mục tiếp tục đồng bộ kể cả khi đóng app. Riêng việc đọc clipboard trên Android vẫn chỉ thực hiện được khi app đang mở.',
-    pairedDevice: 'Thiết bị đã cặp',
+        'Nếu máy kia chưa bấm tim máy này hoặc chưa bật cùng tính năng, lần đồng bộ sẽ bị từ chối im lặng ở máy kia và không bị gửi lặp lại với cùng nội dung (không spam). Khi cả hai máy đã thiết lập xong, bấm nút đồng bộ thủ công một lần để thử lại. Trên Android, bật đồng bộ sẽ giữ LocalSend chạy nền; riêng việc đọc clipboard vẫn chỉ được khi LocalSend đang mở, nên copy ở app khác xong hãy mở LocalSend một lần để app tự bắt kịp.',
+    pairedDevice: '1. Thiết bị đã cặp',
     noFavorites: 'Chưa có thiết bị yêu thích. Bấm biểu tượng tim trên thẻ thiết bị ở thẻ Gửi để thêm (thiết bị sẽ tự thành cặp đồng bộ), rồi quay lại đây.',
     online: 'Trực tuyến',
     offline: 'Ngoại tuyến (sẽ thử lại)',
     none: 'Không chọn',
     peer: 'Thiết bị cặp',
-    clipboardSync: 'Đồng bộ clipboard',
+    clipboardSync: '2. Đồng bộ clipboard',
     autoClipboard: 'Tự động đồng bộ clipboard khi copy',
     clipboardNote:
-        'Chữ tối đa 16 KB, hình ảnh tối đa 8 MB. Máy tính hoạt động khi app đang chạy (kể cả thu nhỏ xuống tray). Trên Android app được giữ chạy nền, nhưng hệ điều hành chỉ cho đọc clipboard khi app ở tiền cảnh, nên hãy copy khi LocalSend đang mở.',
+        'Clipboard đang có sẵn KHÔNG bị gửi lúc thiết lập; lần copy tiếp theo mới được gửi. Chữ tối đa 16 KB, hình ảnh tối đa 8 MB. Máy tính hoạt động khi app đang chạy (kể cả thu nhỏ xuống tray). Trên Android: copy ở app khác, rồi mở LocalSend một lần — app sẽ đọc clipboard khi quay lại tiền cảnh và tự gửi.',
     autoSync: 'Tự động đồng bộ',
     running: 'đang chạy',
     stopped: 'đã dừng',
@@ -149,9 +161,9 @@ class _Strings {
     error: 'Lỗi',
     sendClipboardNow: 'Gửi clipboard ngay',
     clipboardRequested: 'Đã yêu cầu đồng bộ clipboard',
-    folderSync: 'Đồng bộ thư mục chung',
+    folderSync: '3. Đồng bộ thư mục chung',
     autoFolder: 'Tự động đồng bộ thư mục chung',
-    folderNote: 'File mới và file thay đổi sẽ đồng bộ hai chiều (giữ nguyên thư mục con). Không đồng bộ file bị xoá. Nếu hai bên sửa cùng một file, bản ghi sau cùng sẽ thắng.',
+    folderNote: 'Chọn thư mục trước, rồi mới bật tính năng này. File đã có sẵn trong thư mục KHÔNG bị gửi lúc thiết lập; chỉ file tạo/sửa sau đó mới đồng bộ hai chiều (giữ nguyên thư mục con). Nút "Đồng bộ ngay" sẽ gửi toàn bộ nội dung hiện tại một lần theo yêu cầu rõ ràng. Không đồng bộ file bị xoá; nếu hai bên sửa cùng một file, bản ghi sau cùng sẽ thắng.',
     noFolder: '(chưa chọn thư mục)',
     chooseFolder: 'Chọn thư mục',
     clearFolder: 'Bỏ chọn thư mục',
@@ -160,6 +172,10 @@ class _Strings {
     syncNow: 'Đồng bộ ngay',
     folderRequested: 'Đã yêu cầu đồng bộ thư mục',
     privacy: 'Riêng tư: clipboard có thể chứa mật khẩu hoặc mã OTP. Chỉ bật đồng bộ khi tin cậy thiết bị còn lại. Đồng bộ dùng cùng kết nối mã hoá như khi truyền file.',
+    consentStatus: 'Trạng thái 2 chiều',
+    waitingPeer: 'Đang chờ máy kia (máy kia cũng phải bấm tim máy này và bật tính năng này)',
+    activeTwoWay: 'Đang hoạt động: cả hai máy đã đồng ý',
+    featureOff: 'Đang tắt',
   );
 }
 
@@ -226,8 +242,10 @@ class SyncSettingsPage extends StatelessWidget {
                         onChanged: (fp) async {
                           await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(fp.isEmpty ? null : fp);
                           updateSyncBackgroundService(ref);
-                          ref.notifier(clipboardSyncProvider).resetSyncCache();
-                          ref.notifier(clipboardSyncProvider).pollNow(); // ignore: unawaited_futures
+                          // Changing the peer must not send the current
+                          // clipboard/folder content: only record the
+                          // baseline. New changes from now on will sync.
+                          ref.notifier(clipboardSyncProvider).primeCache(); // ignore: unawaited_futures
                           ref.notifier(folderSyncProvider).pollNow(); // ignore: unawaited_futures
                         },
                       ),
@@ -256,8 +274,9 @@ class SyncSettingsPage extends StatelessWidget {
                         await ref.notifier(syncSettingsProvider).setClipboardSyncEnabled(b);
                         updateSyncBackgroundService(ref);
                         if (b) {
-                          ref.notifier(clipboardSyncProvider).resetSyncCache();
-                          ref.notifier(clipboardSyncProvider).pollNow(); // ignore: unawaited_futures
+                          // Do not send the current clipboard at setup;
+                          // only the next copy is synced.
+                          ref.notifier(clipboardSyncProvider).primeCache(); // ignore: unawaited_futures
                         }
                       },
               ),
@@ -274,6 +293,11 @@ class SyncSettingsPage extends StatelessWidget {
               Text(
                 '${s.lastSent}: ${clipboardState.lastSentAt?.toLocal().toString() ?? '—'}  •  ${s.lastReceived}: ${clipboardState.lastReceivedAt?.toLocal().toString() ?? '—'}',
                 style: const TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${s.consentStatus}: ${!sync.clipboardSyncEnabled ? s.featureOff : sync.clipboardPeerConfirmed ? s.activeTwoWay : s.waitingPeer}',
+                style: TextStyle(fontSize: 12, color: sync.clipboardSyncEnabled && sync.clipboardPeerConfirmed ? Colors.green : null),
               ),
               if (clipboardState.lastError != null) Text('${s.error}: ${clipboardState.lastError}', style: const TextStyle(fontSize: 12, color: Colors.red)),
               const SizedBox(height: 8),
@@ -297,7 +321,7 @@ class SyncSettingsPage extends StatelessWidget {
               _ToggleRow(
                 label: s.autoFolder,
                 value: sync.folderSyncEnabled,
-                onChanged: peerFingerprint == null
+                onChanged: peerFingerprint == null || sync.syncFolderPath == null
                     ? null
                     : (b) async {
                         await ref.notifier(syncSettingsProvider).setFolderSyncEnabled(b);
@@ -354,6 +378,11 @@ class SyncSettingsPage extends StatelessWidget {
               Text(
                 '${s.syncedFiles}: ${folderState.syncedFileCount}  •  ${s.lastSync}: ${folderState.lastSyncAt?.toLocal().toString() ?? '—'}',
                 style: const TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${s.consentStatus}: ${!sync.folderSyncEnabled ? s.featureOff : sync.folderPeerConfirmed ? s.activeTwoWay : s.waitingPeer}',
+                style: TextStyle(fontSize: 12, color: sync.folderSyncEnabled && sync.folderPeerConfirmed ? Colors.green : null),
               ),
               if (folderState.lastError != null) Text('${s.error}: ${folderState.lastError}', style: const TextStyle(fontSize: 12, color: Colors.red)),
               const SizedBox(height: 8),

@@ -99,20 +99,23 @@ class ReceiveController {
     final senderFingerprint = event.certFingerprint ?? event.info.fingerprint;
     final senderAlias = server.ref.read(favoritesProvider).firstWhereOrNull((e) => e.fingerprint == senderFingerprint)?.alias ?? event.info.alias;
 
-    // Paired-device sync: only the selected trusted peer can trigger it.
-    // Clipboard sync reuses the message transfer (fixed file name + preview).
-    // Folder sync saves straight into the shared folder and auto-accepts.
-    // Manual text messages from the peer are excluded so they still show the
-    // normal receive dialog.
+    // Paired-device sync: only the selected trusted peer can trigger it,
+    // and only for features this device has enabled as well (consent is
+    // mutual: both devices must favorite each other and enable the same
+    // feature). Clipboard sync reuses the message transfer (fixed file name
+    // + preview); folder sync carries a marker file and saves straight into
+    // the shared folder. Sync attempts without local consent are declined
+    // silently further below instead of showing the receive dialog.
     final isSyncPeer = syncSettings.syncPeerFingerprint != null && syncSettings.syncPeerFingerprint == senderFingerprint;
-    final isClipboardSync = isSyncPeer && syncSettings.clipboardSyncEnabled && files.length == 1 && files.values.first.fileName == clipboardSyncFileName;
-    final isClipboardImageSync = isSyncPeer && syncSettings.clipboardSyncEnabled && files.length == 1 && isClipboardSyncImageFileName(files.values.first.fileName);
-    final isFolderSync = isSyncPeer &&
-        syncSettings.folderSyncEnabled &&
-        syncSettings.syncFolderPath != null &&
-        !isClipboardSync &&
-        !isClipboardImageSync &&
-        !isMessageRequestOf(files.values);
+    final wantsClipboardText = files.length == 1 && files.values.first.fileName == clipboardSyncFileName;
+    final wantsClipboardImage = files.length == 1 && isClipboardSyncImageFileName(files.values.first.fileName);
+    final hasFolderSyncMarker = files.values.any((f) => f.fileName == folderSyncMarkerFileName);
+    final clipboardConsent = isSyncPeer && syncSettings.clipboardSyncEnabled;
+    final folderConsent = isSyncPeer && syncSettings.folderSyncEnabled && syncSettings.syncFolderPath != null;
+    final isClipboardSync = clipboardConsent && wantsClipboardText;
+    final isClipboardImageSync = clipboardConsent && wantsClipboardImage;
+    final isFolderSync = folderConsent && hasFolderSyncMarker && !isClipboardSync && !isClipboardImageSync && !isMessageRequestOf(files.values);
+    final isUnconsentedSync = ((wantsClipboardText || wantsClipboardImage) && !clipboardConsent) || (hasFolderSyncMarker && !folderConsent);
 
     final destinationDir = isFolderSync
         ? syncSettings.syncFolderPath!
@@ -158,6 +161,16 @@ class ReceiveController {
           statuses: {for (final file in files.values) file.id: FileStatus.queue},
         );
 
+    if (isUnconsentedSync) {
+      // Automatic sync from a device this device has not agreed with (not
+      // paired back, or the feature is off here): decline silently. The
+      // sender treats this as "not consented" and stops re-offering the
+      // same content instead of spamming this device with dialogs.
+      _logger.info('Declined unconsented sync session from $senderAlias');
+      declineFileRequest();
+      return;
+    }
+
     if (isClipboardSync) {
       // The text already arrived as the message preview: apply it to the
       // clipboard and accept nothing (no file upload needed).
@@ -167,6 +180,8 @@ class ReceiveController {
         try {
           await Clipboard.setData(ClipboardData(text: preview));
           server.ref.notifier(clipboardSyncProvider).markReceived(preview);
+          // The peer proved it paired us and enabled clipboard sync too.
+          await server.ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(true);
           _logger.info('Clipboard synced from $senderAlias');
           showSyncToastLocalized(en: 'Clipboard text synced from $senderAlias', vi: 'Đã đồng bộ clipboard chữ từ $senderAlias');
         } catch (e) {
@@ -190,14 +205,17 @@ class ReceiveController {
     }
 
     if (isFolderSync) {
+      final syncFileCount = files.values.where((f) => f.fileName != folderSyncMarkerFileName).length;
       showSyncToastLocalized(
-        en: 'Receiving ${files.length} folder file(s) from $senderAlias…',
-        vi: 'Đang nhận ${files.length} file thư mục từ $senderAlias…',
+        en: 'Receiving $syncFileCount folder file(s) from $senderAlias…',
+        vi: 'Đang nhận $syncFileCount file thư mục từ $senderAlias…',
       );
       // Save straight into the shared folder without any dialog or progress
-      // page. Completion is handled in [onFileUploadResult].
+      // page. The marker file is skipped (never saved). Completion is
+      // handled in [onFileUploadResult].
       await acceptFileRequest({
-        for (final f in files.values) f.id: f.fileName,
+        for (final f in files.values)
+          if (f.fileName != folderSyncMarkerFileName) f.id: f.fileName,
       });
       return;
     }
@@ -517,6 +535,7 @@ class ReceiveController {
               await Pasteboard.writeImage(bytes);
             }
             server.ref.notifier(clipboardSyncProvider).markReceivedImage(bytes);
+            await server.ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(true);
             applied = true;
             _logger.info('Clipboard image synced from ${session.senderAlias}');
             await File(savedPath).delete();
@@ -544,6 +563,10 @@ class ReceiveController {
           for (final f in session.files.values)
             if (f.path != null) f.file.fileName,
         ]);
+        if (!hasError) {
+          // The peer proved it paired us and enabled folder sync too.
+          await server.ref.notifier(syncSettingsProvider).setFolderPeerConfirmed(true);
+        }
         final receivedCount = session.files.values.where((f) => f.path != null).length;
         Future.delayed(Duration.zero, () {
           closeSession();

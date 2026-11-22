@@ -396,36 +396,34 @@ class SettingsTab extends StatelessWidget {
                       vm.aliasController.text = alias;
                       await ref.notifier(settingsProvider).setAlias(alias);
                     },
-                    actions: [
-                      Tooltip(
-                        message: t.settingsTab.network.generateRandomAlias,
-                        child: IconButton(
-                          onPressed: () {
-                            final randomAlias = generateRandomAlias();
-                            vm.aliasController.text = randomAlias;
-                          },
-                          icon: const Icon(Icons.casino),
-                        ),
+                    actions: const [],
+                  ),
+                ),
+                _SettingsEntry(
+                  label: isVi ? 'Tuỳ chọn biệt danh' : 'Alias options',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextButton(
+                        onPressed: () async {
+                          final systemName = await getDeviceName();
+                          if (systemName == null || systemName.trim().isEmpty) {
+                            return;
+                          }
+                          vm.aliasController.text = systemName.trim();
+                          await ref.notifier(settingsProvider).setAlias(systemName.trim());
+                        },
+                        child: Text(t.settingsTab.network.useSystemName, textAlign: TextAlign.center),
                       ),
-                      Builder(
-                        builder: (dialogContext) => Tooltip(
-                          message: t.settingsTab.network.useSystemName,
-                          child: IconButton(
-                            onPressed: () async {
-                              final systemName = await getDeviceName();
-                              if (systemName == null || !dialogContext.mounted) {
-                                return;
-                              }
-
-                              final isDialogOpen = ModalRoute.of(dialogContext)?.isCurrent ?? false;
-                              if (!isDialogOpen) {
-                                return;
-                              }
-
-                              vm.aliasController.text = systemName;
-                            },
-                            icon: const Icon(Icons.desktop_windows_rounded),
-                          ),
+                      TextButton(
+                        onPressed: () async {
+                          final randomAlias = generateRandomAlias();
+                          vm.aliasController.text = randomAlias;
+                          await ref.notifier(settingsProvider).setAlias(randomAlias);
+                        },
+                        child: Text(
+                          isVi ? 'Biệt danh ngẫu nhiên (tuỳ chọn)' : '${t.settingsTab.network.generateRandomAlias} (optional)',
+                          textAlign: TextAlign.center,
                         ),
                       ),
                     ],

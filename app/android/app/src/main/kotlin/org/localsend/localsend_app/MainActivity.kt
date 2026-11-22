@@ -217,7 +217,7 @@ class MainActivity : FlutterActivity() {
     }
 
     /// Returns the bytes of the image currently on the clipboard, or null.
-    /// Only the first clip item is considered, mirroring the pasteboard plugin.
+    /// All clip items are considered because the image is not always first.
     private fun handleGetClipboardImage(result: MethodChannel.Result) {
         try {
             val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -226,18 +226,21 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
                 return
             }
-            val uri = clip.getItemAt(0).uri
-            if (uri == null) {
-                result.success(null)
-                return
+            // A clip can hold several items (e.g. text first, image second):
+            // return the first item that actually is an image.
+            for (i in 0 until clip.itemCount) {
+                val uri = clip.getItemAt(i).uri ?: continue
+                val mime = contentResolver.getType(uri)
+                if (mime != null && !mime.startsWith("image")) {
+                    continue
+                }
+                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (bytes != null && bytes.isNotEmpty()) {
+                    result.success(bytes)
+                    return
+                }
             }
-            val mime = contentResolver.getType(uri)
-            if (mime != null && !mime.startsWith("image")) {
-                result.success(null)
-                return
-            }
-            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            result.success(bytes)
+            result.success(null)
         } catch (e: Exception) {
             result.error("CLIPBOARD_IMAGE_READ_FAILED", e.message ?: "Failed to read clipboard image", null)
         }

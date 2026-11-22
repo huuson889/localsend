@@ -7,6 +7,8 @@ import 'package:localsend_app/provider/favorites_provider.dart';
 import 'package:localsend_app/provider/http_provider.dart';
 import 'package:localsend_app/provider/settings_provider.dart';
 import 'package:localsend_app/provider/sync/background_sync.dart';
+import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
+import 'package:localsend_app/provider/sync/folder_sync_service.dart';
 import 'package:localsend_app/provider/sync_settings_provider.dart';
 import 'package:localsend_app/widget/dialogs/error_dialog.dart';
 import 'package:localsend_app/widget/dialogs/favorite_delete_dialog.dart';
@@ -224,8 +226,12 @@ class _FavoriteEditDialogState extends State<FavoriteEditDialog> with Refena {
                           );
 
                       // Pair the newly added device for sync right away.
+                      // Nothing is sent yet: sync starts with the next
+                      // copy/change once both devices have paired.
                       await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(response.body.token);
                       updateSyncBackgroundService(ref);
+                      ref.notifier(clipboardSyncProvider).primeCache(); // ignore: unawaited_futures
+                      ref.notifier(folderSyncProvider).pollNow(); // ignore: unawaited_futures
 
                       if (context.mounted) {
                         context.pop();

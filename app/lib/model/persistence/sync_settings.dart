@@ -19,11 +19,22 @@ class SyncSettings {
   /// Local folder that is kept in sync with the paired device.
   final String? syncFolderPath;
 
+  /// Whether the peer has proven (by accepting a sync from this device, or
+  /// by sending one this device accepted) that it also favorited this
+  /// device and enabled clipboard sync. Until then the UI shows "waiting
+  /// for the other device" and rejected content is not retried.
+  final bool clipboardPeerConfirmed;
+
+  /// Same as [clipboardPeerConfirmed], for folder sync.
+  final bool folderPeerConfirmed;
+
   const SyncSettings({
     required this.syncPeerFingerprint,
     required this.clipboardSyncEnabled,
     required this.folderSyncEnabled,
     required this.syncFolderPath,
+    required this.clipboardPeerConfirmed,
+    required this.folderPeerConfirmed,
   });
 
   static const empty = SyncSettings(
@@ -31,6 +42,8 @@ class SyncSettings {
     clipboardSyncEnabled: false,
     folderSyncEnabled: false,
     syncFolderPath: null,
+    clipboardPeerConfirmed: false,
+    folderPeerConfirmed: false,
   );
 
   static const _unset = Object();
@@ -42,12 +55,16 @@ class SyncSettings {
     bool? clipboardSyncEnabled,
     bool? folderSyncEnabled,
     Object? syncFolderPath = _unset,
+    bool? clipboardPeerConfirmed,
+    bool? folderPeerConfirmed,
   }) {
     return SyncSettings(
       syncPeerFingerprint: syncPeerFingerprint == _unset ? this.syncPeerFingerprint : syncPeerFingerprint as String?,
       clipboardSyncEnabled: clipboardSyncEnabled ?? this.clipboardSyncEnabled,
       folderSyncEnabled: folderSyncEnabled ?? this.folderSyncEnabled,
       syncFolderPath: syncFolderPath == _unset ? this.syncFolderPath : syncFolderPath as String?,
+      clipboardPeerConfirmed: clipboardPeerConfirmed ?? this.clipboardPeerConfirmed,
+      folderPeerConfirmed: folderPeerConfirmed ?? this.folderPeerConfirmed,
     );
   }
 
@@ -93,3 +110,10 @@ bool isClipboardSyncImageFileName(String fileName) {
 
 /// Clipboard images larger than this are not synced.
 const maxClipboardImageBytes = 8 * 1024 * 1024;
+
+/// Marker file added to every folder-sync session (a 1-byte dummy that the
+/// receiver never saves). It lets the receiver tell an automatic folder
+/// sync apart from a manual file send: sync sessions from a device that
+/// has not been paired back, or for a feature that is off locally, are
+/// declined silently instead of popping up the receive dialog.
+const folderSyncMarkerFileName = '__folder_sync__.marker';

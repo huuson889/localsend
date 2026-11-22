@@ -79,6 +79,15 @@ class LocalSendApp extends StatelessWidget {
                 // (the OS may have paused the timers while the app was suspended).
                 // ignore: discarded_futures
                 ref.notifier(clipboardSyncProvider).pollNow();
+                // Android grants clipboard reads only once the window has
+                // focus, which can lag the resume event: poll once more a
+                // moment later so a copy made in another app is picked up.
+                if (checkPlatform([TargetPlatform.android])) {
+                  Future.delayed(const Duration(milliseconds: 700), () {
+                    // ignore: discarded_futures
+                    ref.notifier(clipboardSyncProvider).pollNow();
+                  });
+                }
                 // ignore: discarded_futures
                 ref.notifier(folderSyncProvider).pollNow();
                 updateSyncBackgroundService(ref);

@@ -251,10 +251,13 @@ class SendTab extends StatelessWidget {
                                       ),
                                     );
                                     // Pair the newly favorited device for sync right away.
+                                    // Only the pairing is recorded here: the current
+                                    // clipboard/folder content is NOT sent. Sync
+                                    // starts with the next copy/change, and only
+                                    // once the other device has paired back.
                                     await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(device.fingerprint);
                                     updateSyncBackgroundService(ref);
-                                    ref.notifier(clipboardSyncProvider).resetSyncCache();
-                                    ref.notifier(clipboardSyncProvider).pollNow(); // ignore: unawaited_futures
+                                    ref.notifier(clipboardSyncProvider).primeCache(); // ignore: unawaited_futures
                                     ref.notifier(folderSyncProvider).pollNow(); // ignore: unawaited_futures
                                   }
                                 },

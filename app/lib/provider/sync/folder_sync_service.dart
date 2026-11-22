@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:localsend_app/model/cross_file.dart';
+import 'package:localsend_app/model/persistence/sync_settings.dart';
 import 'package:localsend_app/provider/network/send_provider.dart';
+import 'package:localsend_app/provider/persistence_provider.dart';
 import 'package:localsend_app/provider/sync/peer_resolver.dart';
 import 'package:localsend_app/provider/sync_settings_provider.dart';
 import 'package:localsend_app/util/native/channel/android_channel.dart' as android_channel;
@@ -26,6 +28,9 @@ const _maxBatchSize = 100;
 /// Files modified more recently than this are considered still being written
 /// and are skipped until they settle.
 const _settleDelay = Duration(seconds: 1);
+
+/// How a background sync send ended; see [FolderSyncService._sendInBackground].
+enum _SendOutcome { sent, rejected, failed }
 
 class FolderSyncState {
   final bool running;
@@ -131,7 +136,20 @@ class FolderSyncService extends Notifier<FolderSyncState> {
   /// Relative path -> signature of last synced state.
   final Map<String, _FileSig> _lastSynced = {};
 
-  String? _lastFolderPath;
+  /// `peer|folder` combination the current baseline belongs to. The first
+  /// scan for a new combination only records the baseline (existing files
+  /// are *not* sent), so setting sync up never blasts the folder's current
+  /// content at the peer. Only later changes are synced.
+  String? _baselineKey;
+
+  /// Set by [syncNow]: the next poll sends the folder's current content
+  /// once, explicitly, instead of only recording the baseline.
+  bool _forceSendExisting = false;
+
+  /// Signature of the change set the peer last rejected (not paired back /
+  /// feature off there). The same set is not offered again; a new change
+  /// (or the manual sync button) retries.
+  String? _rejectedChangeSignature;
 
   @override
   FolderSyncState init() => FolderSyncState.initial;
@@ -153,8 +171,12 @@ class FolderSyncService extends Notifier<FolderSyncState> {
   }
 
   /// Forces an immediate poll (used by the "Sync now" button).
+  /// Unlike the automatic polls, this sends the folder's current content
+  /// even if it predates the setup: the user asked for it explicitly.
   Future<void> syncNow() async {
     start();
+    _forceSendExisting = true;
+    _rejectedChangeSignature = null;
     await _poll();
   }
 
@@ -167,12 +189,14 @@ class FolderSyncService extends Notifier<FolderSyncState> {
     await _poll();
   }
 
-  /// Sends [files] in a background session and reports whether the transfer
-  /// was actually accepted and finished. `startSession` also returns
-  /// normally when the peer is busy, declines or cannot be reached, so the
-  /// sync bookkeeping must not treat every return as success — otherwise a
-  /// failed folder sync would be marked as done and never retried.
-  Future<bool> _sendInBackground({required Device peer, required List<CrossFile> files}) async {
+  /// Sends [files] in a background session and reports how it ended.
+  /// `startSession` also returns normally when the peer declines or cannot
+  /// be reached, so the sync bookkeeping must not treat every return as
+  /// success — otherwise a failed folder sync would be marked as done and
+  /// never retried. A *rejected* send means the peer has not agreed to
+  /// folder sync (not paired back / feature off there): the same change
+  /// set must not be offered again on every poll.
+  Future<_SendOutcome> _sendInBackground({required Device peer, required List<CrossFile> files}) async {
     final beforeSessionIds = ref.read(sendProvider).keys.toSet();
     await ref.notifier(sendProvider).startSession(target: peer, files: files, background: true);
     final remaining = ref
@@ -182,25 +206,64 @@ class FolderSyncService extends Notifier<FolderSyncState> {
         .toList();
     if (remaining.isEmpty) {
       // Successful background sessions close (and remove) themselves.
-      return true;
+      return _SendOutcome.sent;
     }
-    const failureStates = {
-      SessionStatus.finishedWithErrors,
+    const rejectedStates = {
       SessionStatus.declined,
-      SessionStatus.recipientBusy,
       SessionStatus.tooManyAttempts,
-      SessionStatus.canceledBySender,
       SessionStatus.canceledByReceiver,
     };
-    return !remaining.any((s) => failureStates.contains(s.status));
+    if (remaining.any((s) => rejectedStates.contains(s.status))) {
+      return _SendOutcome.rejected;
+    }
+    return _SendOutcome.failed;
+  }
+
+  /// Loads the persisted baseline for [baselineKey] (peer + folder) into
+  /// memory. A missing entry means this peer+folder was never set up:
+  /// [_baselineKey] stays unset so the first scan only records the
+  /// baseline instead of sending the folder's existing content.
+  void _ensureBaselineLoaded(String baselineKey) {
+    if (_baselineKey == baselineKey) {
+      return;
+    }
+    final stored = ref.read(persistenceProvider).getFolderSyncSignatures()[baselineKey];
+    _lastSynced.clear();
+    _rejectedChangeSignature = null;
+    _baselineKey = null;
+    if (stored != null) {
+      for (final entry in stored.entries) {
+        if (entry.value.length >= 2) {
+          _lastSynced[entry.key] = _FileSig(entry.value[0], entry.value[1]);
+        }
+      }
+      _baselineKey = baselineKey;
+    }
+  }
+
+  /// Persists the in-memory baseline so restarts keep detecting changes
+  /// made while the app was closed.
+  Future<void> _saveBaseline() async {
+    final key = _baselineKey;
+    if (key == null) {
+      return;
+    }
+    final persistence = ref.read(persistenceProvider);
+    final all = persistence.getFolderSyncSignatures();
+    all[key] = {for (final entry in _lastSynced.entries) entry.key: [entry.value.size, entry.value.modifiedMillis]};
+    await persistence.setFolderSyncSignatures(all);
   }
 
   /// Records files that were just received from the peer, so the poller
   /// does not send them back. [relativePaths] use `/` separators.
   Future<void> markReceived(List<String> relativePaths) async {
-    final folderPath = ref.read(syncSettingsProvider).syncFolderPath;
+    final settings = ref.read(syncSettingsProvider);
+    final folderPath = settings.syncFolderPath;
     if (folderPath == null) {
       return;
+    }
+    if (settings.syncPeerFingerprint != null) {
+      _ensureBaselineLoaded('${settings.syncPeerFingerprint}|$folderPath');
     }
     if (folderPath.startsWith('content://')) {
       // Android SAF folder: stat the saved files through the tree listing
@@ -218,6 +281,7 @@ class FolderSyncService extends Notifier<FolderSyncState> {
       } catch (e) {
         _logger.fine('markReceived (SAF) failed: $e');
       }
+      await _saveBaseline();
       state = state.copyWith(syncedFileCount: _lastSynced.length);
       return;
     }
@@ -233,6 +297,7 @@ class FolderSyncService extends Notifier<FolderSyncState> {
         _logger.fine('markReceived failed for $rel: $e');
       }
     }
+    await _saveBaseline();
     state = state.copyWith(syncedFileCount: _lastSynced.length);
   }
 
@@ -257,15 +322,14 @@ class FolderSyncService extends Notifier<FolderSyncState> {
       return;
     }
 
-    // Reset baseline when the user picks a different folder.
-    if (_lastFolderPath != folderPath) {
-      _lastFolderPath = folderPath;
-      _lastSynced.clear();
-    }
+    final baselineKey = '${settings.syncPeerFingerprint}|$folderPath';
+    _ensureBaselineLoaded(baselineKey);
 
     final peer = resolveSyncPeer(ref);
-    if (peer == null) {
-      // Peer offline. Keep baseline stale so files sync when it appears.
+    if (peer == null && _baselineKey == baselineKey && !_forceSendExisting) {
+      // Peer offline and the baseline is known: nothing to scan for now.
+      // Files changed in the meantime are picked up when the peer appears
+      // because the baseline still holds their old signatures.
       return;
     }
 
@@ -318,19 +382,67 @@ class FolderSyncService extends Notifier<FolderSyncState> {
       return;
     }
 
+    // First scan for this peer+folder: record what already exists as the
+    // baseline and send nothing. Sync covers changes made after setup;
+    // the manual "Sync now" button is the explicit way to send the
+    // existing content once.
+    if (_baselineKey != baselineKey && !_forceSendExisting) {
+      _lastSynced
+        ..clear()
+        ..addAll(current);
+      _baselineKey = baselineKey;
+      _saveBaseline(); // ignore: unawaited_futures
+      state = state.copyWith(syncedFileCount: _lastSynced.length, clearError: true);
+      return;
+    }
+    if (peer == null) {
+      // Peer offline. Keep the baseline (and a pending manual force-send)
+      // stale so files sync when it appears.
+      return;
+    }
+    final forceSendExisting = _forceSendExisting;
+    _forceSendExisting = false;
+
     // Drop baseline entries for locally deleted files (deletion itself is
     // not propagated, but a later re-creation must be detected).
     _lastSynced.removeWhere((rel, _) => !current.containsKey(rel));
 
-    final changed = current.entries.where((e) => _lastSynced[e.key] != e.value && !settling.contains(e.key)).map((e) => e.key).toList()..sort();
+    // A manual "Sync now" sends the folder's current content once, even
+    // files that were already synced before.
+    final changed = forceSendExisting
+        ? current.keys.where((rel) => !settling.contains(rel)).toList()..sort()
+        : current.entries.where((e) => _lastSynced[e.key] != e.value && !settling.contains(e.key)).map((e) => e.key).toList()..sort();
     if (changed.isEmpty) {
+      return;
+    }
+
+    // Anti-spam: if the peer already rejected exactly this change set (it
+    // has not agreed to folder sync), do not offer it again. Any new or
+    // further-changed file produces a different signature and retries.
+    final changeSignature = changed.map((rel) => '$rel:${current[rel]!.size}:${current[rel]!.modifiedMillis}').join('|');
+    if (changeSignature == _rejectedChangeSignature) {
       return;
     }
 
     final batch = changed.take(_maxBatchSize).toList();
     _sending = true;
     try {
-      final crossFiles = <CrossFile>[];
+      // The marker identifies this session as an automatic folder sync to
+      // the receiver (never saved there). Without it, the files would be
+      // indistinguishable from a manual send.
+      final crossFiles = <CrossFile>[
+        CrossFile(
+          name: folderSyncMarkerFileName,
+          fileType: folderSyncMarkerFileName.guessFileType(),
+          size: 1,
+          thumbnail: null,
+          asset: null,
+          path: null,
+          bytes: const [1],
+          lastModified: null,
+          lastAccessed: null,
+        ),
+      ];
       for (final rel in batch) {
         final safFile = safFilesByRel[rel];
         if (safFile != null) {
@@ -371,17 +483,32 @@ class FolderSyncService extends Notifier<FolderSyncState> {
         en: 'Sending ${batch.length} folder file(s) to ${peer.alias}…',
         vi: 'Đang gửi ${batch.length} file thư mục tới ${peer.alias}…',
       );
-      final sent = await _sendInBackground(peer: peer, files: crossFiles);
-      if (!sent) {
-        // Keep the baseline stale so the next poll retries these files.
-        state = state.copyWith(lastError: 'Folder files were not accepted by ${peer.alias}');
-        showSyncToastLocalized(en: 'Folder sync failed', vi: 'Đồng bộ thư mục thất bại');
+      final outcome = await _sendInBackground(peer: peer, files: crossFiles);
+      if (outcome != _SendOutcome.sent) {
+        if (outcome == _SendOutcome.rejected) {
+          // The peer has not agreed to folder sync (yet): remember this
+          // change set so it is not offered again until something changes.
+          _rejectedChangeSignature = changeSignature;
+          await ref.notifier(syncSettingsProvider).setFolderPeerConfirmed(false);
+          state = state.copyWith(lastError: 'Waiting for ${peer.alias} to favorite this device and enable folder sync');
+          showSyncToastLocalized(
+            en: 'Waiting for ${peer.alias} to enable folder sync',
+            vi: 'Đang chờ ${peer.alias} bật đồng bộ thư mục',
+          );
+        } else {
+          // Transient failure: keep the baseline stale so the next poll retries.
+          state = state.copyWith(lastError: 'Folder files were not accepted by ${peer.alias}');
+          showSyncToastLocalized(en: 'Folder sync failed', vi: 'Đồng bộ thư mục thất bại');
+        }
         return;
       }
+      _rejectedChangeSignature = null;
       for (final rel in batch) {
         _lastSynced[rel] = current[rel]!;
       }
+      await _saveBaseline();
       final now = DateTime.now();
+      await ref.notifier(syncSettingsProvider).setFolderPeerConfirmed(true);
       state = state.copyWith(
         lastSyncAt: now,
         lastSentCount: batch.length,
