@@ -5,6 +5,10 @@ import 'package:localsend_app/model/cross_file.dart';
 import 'package:localsend_app/provider/network/send_provider.dart';
 import 'package:localsend_app/provider/sync/peer_resolver.dart';
 import 'package:localsend_app/provider/sync_settings_provider.dart';
+import 'package:localsend_app/util/native/channel/android_channel.dart' as android_channel;
+import 'package:localsend_app/util/ui/sync_toast.dart';
+import 'package:localsend_isolates/model/device.dart';
+import 'package:localsend_isolates/model/session_status.dart';
 import 'package:localsend_isolates/rust/api/metadata.dart';
 import 'package:localsend_isolates/util/file_path_helper.dart';
 import 'package:logging/logging.dart';
@@ -99,6 +103,19 @@ class _FileSig {
   int get hashCode => Object.hash(size, modifiedMillis);
 }
 
+/// A file found by scanning an Android SAF directory tree.
+class _SafFile {
+  final String uri;
+  final int size;
+  final String? lastModifiedRfc3339;
+
+  const _SafFile({
+    required this.uri,
+    required this.size,
+    required this.lastModifiedRfc3339,
+  });
+}
+
 /// Keeps a shared folder in sync with the paired device (both directions).
 ///
 /// - Polls the folder every few seconds, sends new/changed files to the peer
@@ -150,11 +167,58 @@ class FolderSyncService extends Notifier<FolderSyncState> {
     await _poll();
   }
 
+  /// Sends [files] in a background session and reports whether the transfer
+  /// was actually accepted and finished. `startSession` also returns
+  /// normally when the peer is busy, declines or cannot be reached, so the
+  /// sync bookkeeping must not treat every return as success — otherwise a
+  /// failed folder sync would be marked as done and never retried.
+  Future<bool> _sendInBackground({required Device peer, required List<CrossFile> files}) async {
+    final beforeSessionIds = ref.read(sendProvider).keys.toSet();
+    await ref.notifier(sendProvider).startSession(target: peer, files: files, background: true);
+    final remaining = ref
+        .read(sendProvider)
+        .values
+        .where((s) => !beforeSessionIds.contains(s.sessionId) && s.target.fingerprint == peer.fingerprint)
+        .toList();
+    if (remaining.isEmpty) {
+      // Successful background sessions close (and remove) themselves.
+      return true;
+    }
+    const failureStates = {
+      SessionStatus.finishedWithErrors,
+      SessionStatus.declined,
+      SessionStatus.recipientBusy,
+      SessionStatus.tooManyAttempts,
+      SessionStatus.canceledBySender,
+      SessionStatus.canceledByReceiver,
+    };
+    return !remaining.any((s) => failureStates.contains(s.status));
+  }
+
   /// Records files that were just received from the peer, so the poller
   /// does not send them back. [relativePaths] use `/` separators.
-  void markReceived(List<String> relativePaths) {
+  Future<void> markReceived(List<String> relativePaths) async {
     final folderPath = ref.read(syncSettingsProvider).syncFolderPath;
     if (folderPath == null) {
+      return;
+    }
+    if (folderPath.startsWith('content://')) {
+      // Android SAF folder: stat the saved files through the tree listing
+      // (dart:io cannot address content URIs).
+      try {
+        final byRelativePath = {
+          for (final file in await android_channel.listDirectoryFilesAndroid(folderPath)) file.relativePath: file,
+        };
+        for (final rel in relativePaths) {
+          final file = byRelativePath[rel];
+          if (file != null) {
+            _lastSynced[rel] = _FileSig(file.size, file.lastModifiedMillis ?? 0);
+          }
+        }
+      } catch (e) {
+        _logger.fine('markReceived (SAF) failed: $e');
+      }
+      state = state.copyWith(syncedFileCount: _lastSynced.length);
       return;
     }
     for (final rel in relativePaths) {
@@ -182,9 +246,14 @@ class FolderSyncService extends Notifier<FolderSyncState> {
     }
     state = state.copyWith(lastPollAt: DateTime.now());
     final folderPath = settings.syncFolderPath!;
-    final directory = Directory(folderPath);
-    if (!directory.existsSync()) {
+    // On Android the picked folder is a SAF `content://` tree URI, which
+    // dart:io cannot list or stat; it is scanned through the platform
+    // channel instead (see the scan below).
+    final isSafFolder = folderPath.startsWith('content://');
+    final directory = isSafFolder ? null : Directory(folderPath);
+    if (directory != null && !directory.existsSync()) {
       _logger.warning('Sync folder does not exist: $folderPath');
+      state = state.copyWith(lastError: 'Sync folder does not exist');
       return;
     }
 
@@ -203,30 +272,49 @@ class FolderSyncService extends Notifier<FolderSyncState> {
     // Scan current folder state.
     final current = <String, _FileSig>{};
     final filesByRel = <String, File>{};
+    final safFilesByRel = <String, _SafFile>{};
     final settling = <String>{};
     try {
-      await for (final entity in directory.list(recursive: true)) {
-        if (entity is! File) {
-          continue;
-        }
-        final rel = p.relative(entity.path, from: folderPath).replaceAll('\\', '/');
-        try {
-          final stat = entity.statSync();
-          current[rel] = _FileSig(stat.size, stat.modified.millisecondsSinceEpoch);
-          filesByRel[rel] = entity;
-          // Files modified very recently are likely still being written:
-          // defer sending them until they settle, but keep them in [current]
-          // so their baseline entry is not dropped (which would cause an
-          // echo of just-received files).
-          if (DateTime.now().difference(stat.modified) < _settleDelay) {
+      if (isSafFolder) {
+        for (final file in await android_channel.listDirectoryFilesAndroid(folderPath)) {
+          final rel = file.relativePath;
+          final signature = _FileSig(file.size, file.lastModifiedMillis ?? 0);
+          current[rel] = signature;
+          safFilesByRel[rel] = _SafFile(
+            uri: file.uri,
+            size: file.size,
+            lastModifiedRfc3339: file.lastModifiedRfc3339,
+          );
+          final modifiedMillis = file.lastModifiedMillis;
+          if (modifiedMillis != null && DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(modifiedMillis)) < _settleDelay) {
             settling.add(rel);
           }
-        } catch (e) {
-          _logger.fine('Skipping unreadable file $rel: $e');
+        }
+      } else {
+        await for (final entity in directory!.list(recursive: true)) {
+          if (entity is! File) {
+            continue;
+          }
+          final rel = p.relative(entity.path, from: folderPath).replaceAll('\\', '/');
+          try {
+            final stat = entity.statSync();
+            current[rel] = _FileSig(stat.size, stat.modified.millisecondsSinceEpoch);
+            filesByRel[rel] = entity;
+            // Files modified very recently are likely still being written:
+            // defer sending them until they settle, but keep them in [current]
+            // so their baseline entry is not dropped (which would cause an
+            // echo of just-received files).
+            if (DateTime.now().difference(stat.modified) < _settleDelay) {
+              settling.add(rel);
+            }
+          } catch (e) {
+            _logger.fine('Skipping unreadable file $rel: $e');
+          }
         }
       }
     } catch (e) {
       _logger.warning('Folder scan failed: $e');
+      state = state.copyWith(lastError: e.toString());
       return;
     }
 
@@ -244,6 +332,25 @@ class FolderSyncService extends Notifier<FolderSyncState> {
     try {
       final crossFiles = <CrossFile>[];
       for (final rel in batch) {
+        final safFile = safFilesByRel[rel];
+        if (safFile != null) {
+          // SAF files are read through their content URI by the upload task;
+          // their timestamps come from the directory listing (no stat in Rust).
+          crossFiles.add(
+            CrossFile(
+              name: rel,
+              fileType: rel.guessFileType(),
+              size: safFile.size,
+              thumbnail: null,
+              asset: null,
+              path: safFile.uri,
+              bytes: null,
+              lastModified: safFile.lastModifiedRfc3339,
+              lastAccessed: null,
+            ),
+          );
+          continue;
+        }
         final file = filesByRel[rel]!;
         final metadata = await readFileMetadata(path: file.path);
         crossFiles.add(
@@ -260,7 +367,17 @@ class FolderSyncService extends Notifier<FolderSyncState> {
           ),
         );
       }
-      await ref.notifier(sendProvider).startSession(target: peer, files: crossFiles, background: true);
+      showSyncToastLocalized(
+        en: 'Sending ${batch.length} folder file(s) to ${peer.alias}…',
+        vi: 'Đang gửi ${batch.length} file thư mục tới ${peer.alias}…',
+      );
+      final sent = await _sendInBackground(peer: peer, files: crossFiles);
+      if (!sent) {
+        // Keep the baseline stale so the next poll retries these files.
+        state = state.copyWith(lastError: 'Folder files were not accepted by ${peer.alias}');
+        showSyncToastLocalized(en: 'Folder sync failed', vi: 'Đồng bộ thư mục thất bại');
+        return;
+      }
       for (final rel in batch) {
         _lastSynced[rel] = current[rel]!;
       }
@@ -271,10 +388,15 @@ class FolderSyncService extends Notifier<FolderSyncState> {
         syncedFileCount: _lastSynced.length,
         clearError: true,
       );
+      showSyncToastLocalized(
+        en: 'Sent ${batch.length} folder file(s) to ${peer.alias}',
+        vi: 'Đã gửi ${batch.length} file thư mục tới ${peer.alias}',
+      );
       _logger.info('Folder sync: sent ${batch.length} file(s) to ${peer.alias}');
     } catch (e) {
       _logger.warning('Folder sync send failed: $e');
       state = state.copyWith(lastError: e.toString());
+      showSyncToastLocalized(en: 'Folder sync failed', vi: 'Đồng bộ thư mục thất bại');
     } finally {
       _sending = false;
     }

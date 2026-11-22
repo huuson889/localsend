@@ -29,10 +29,11 @@ import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
 import 'package:localsend_app/provider/sync/folder_sync_service.dart';
 import 'package:localsend_app/provider/sync_settings_provider.dart';
 import 'package:localsend_app/util/message_preview.dart';
+import 'package:localsend_app/util/native/channel/android_channel.dart' as android_channel;
 import 'package:localsend_app/util/native/directories.dart';
 import 'package:localsend_app/util/native/platform_check.dart';
 import 'package:localsend_app/util/native/tray_helper.dart';
-import 'package:localsend_app/util/ui/snackbar.dart';
+import 'package:localsend_app/util/ui/sync_toast.dart';
 import 'package:localsend_app/widget/dialogs/open_file_dialog.dart';
 import 'package:localsend_isolates/isolate.dart';
 import 'package:localsend_isolates/model/device.dart';
@@ -162,13 +163,15 @@ class ReceiveController {
       // clipboard and accept nothing (no file upload needed).
       final preview = files.values.first.preview;
       if (preview != null) {
+        showSyncToastLocalized(en: 'Receiving clipboard text from $senderAlias…', vi: 'Đang nhận clipboard chữ từ $senderAlias…');
         try {
           await Clipboard.setData(ClipboardData(text: preview));
           server.ref.notifier(clipboardSyncProvider).markReceived(preview);
           _logger.info('Clipboard synced from $senderAlias');
-          Routerino.context.showSnackBar('Clipboard synced from $senderAlias');
+          showSyncToastLocalized(en: 'Clipboard text synced from $senderAlias', vi: 'Đã đồng bộ clipboard chữ từ $senderAlias');
         } catch (e) {
           _logger.warning('Failed to apply synced clipboard: $e');
+          showSyncToastLocalized(en: 'Clipboard text sync failed', vi: 'Đồng bộ clipboard chữ thất bại');
         }
       }
       await acceptFileRequest({});
@@ -176,6 +179,7 @@ class ReceiveController {
     }
 
     if (isClipboardImageSync) {
+      showSyncToastLocalized(en: 'Receiving clipboard image from $senderAlias…', vi: 'Đang nhận clipboard hình ảnh từ $senderAlias…');
       // The image is saved into the cache directory first; it is written to
       // the clipboard (and the transport copy deleted) once the upload
       // finishes, see [onFileUploadResult].
@@ -186,6 +190,10 @@ class ReceiveController {
     }
 
     if (isFolderSync) {
+      showSyncToastLocalized(
+        en: 'Receiving ${files.length} folder file(s) from $senderAlias…',
+        vi: 'Đang nhận ${files.length} file thư mục từ $senderAlias…',
+      );
       // Save straight into the shared folder without any dialog or progress
       // page. Completion is handled in [onFileUploadResult].
       await acceptFileRequest({
@@ -500,7 +508,14 @@ class ReceiveController {
         if (!hasError && savedPath != null) {
           try {
             final bytes = await File(savedPath).readAsBytes();
-            await Pasteboard.writeImage(bytes);
+            // On Android the pasteboard plugin's writeImage is unreliable
+            // (it can publish an empty file and never completes), so use the
+            // app's own platform channel there.
+            if (checkPlatform([TargetPlatform.android])) {
+              await android_channel.writeClipboardImageAndroid(bytes);
+            } else {
+              await Pasteboard.writeImage(bytes);
+            }
             server.ref.notifier(clipboardSyncProvider).markReceivedImage(bytes);
             applied = true;
             _logger.info('Clipboard image synced from ${session.senderAlias}');
@@ -512,7 +527,12 @@ class ReceiveController {
         Future.delayed(Duration.zero, () {
           closeSession();
           if (applied) {
-            Routerino.context.showSnackBar('Clipboard image synced from ${session.senderAlias}');
+            showSyncToastLocalized(
+              en: 'Clipboard image synced from ${session.senderAlias}',
+              vi: 'Đã đồng bộ clipboard hình ảnh từ ${session.senderAlias}',
+            );
+          } else {
+            showSyncToastLocalized(en: 'Clipboard image sync failed', vi: 'Đồng bộ clipboard hình ảnh thất bại');
           }
         });
         return;
@@ -520,15 +540,21 @@ class ReceiveController {
       if (isFolderSyncSession) {
         // Only successfully saved files are marked, so failed files are
         // retried on the next poll instead of being lost.
-        server.ref.notifier(folderSyncProvider).markReceived([
+        await server.ref.notifier(folderSyncProvider).markReceived([
           for (final f in session.files.values)
             if (f.path != null) f.file.fileName,
         ]);
+        final receivedCount = session.files.values.where((f) => f.path != null).length;
         Future.delayed(Duration.zero, () {
           closeSession();
-          Routerino.context.showSnackBar(
-            hasError ? 'Folder sync finished with errors' : 'Folder synced from ${session.senderAlias}',
-          );
+          if (hasError) {
+            showSyncToastLocalized(en: 'Folder sync finished with errors', vi: 'Đồng bộ thư mục xong nhưng có lỗi');
+          } else {
+            showSyncToastLocalized(
+              en: 'Received $receivedCount folder file(s) from ${session.senderAlias}',
+              vi: 'Đã nhận $receivedCount file thư mục từ ${session.senderAlias}',
+            );
+          }
         });
         _logger.info('Folder sync session finished.');
         return;

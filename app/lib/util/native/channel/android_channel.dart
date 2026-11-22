@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dart_mappable/dart_mappable.dart';
 import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
@@ -28,6 +30,65 @@ Future<PickDirectoryResult?> pickDirectoryAndroid() async {
 Future<String?> pickDirectoryPathAndroid() async {
   final result = await _methodChannel.invokeMethod<String>('pickDirectoryPath');
   return result;
+}
+
+/// One file inside an Android SAF directory tree.
+class SafDirectoryFile {
+  /// Path relative to the picked directory, using `/` separators.
+  final String relativePath;
+
+  /// Content URI that can be opened for reading.
+  final String uri;
+  final int size;
+
+  /// Last modification time in milliseconds since epoch, if the provider knows it.
+  final int? lastModifiedMillis;
+
+  const SafDirectoryFile({
+    required this.relativePath,
+    required this.uri,
+    required this.size,
+    required this.lastModifiedMillis,
+  });
+
+  String? get lastModifiedRfc3339 {
+    final millis = lastModifiedMillis;
+    return millis == null ? null : DateTime.fromMillisecondsSinceEpoch(millis, isUtc: true).toIso8601String();
+  }
+}
+
+/// Lists all files below the SAF directory [treeUri] (recursive).
+/// Used by folder sync: the picked sync folder is a `content://` tree URI,
+/// which `dart:io` cannot scan directly.
+Future<List<SafDirectoryFile>> listDirectoryFilesAndroid(String treeUri) async {
+  final result = await _methodChannel.invokeMethod<List>('listDirectoryFiles', {
+    'treeUri': treeUri,
+  });
+  if (result == null) {
+    return const [];
+  }
+  return result.map((entry) {
+    final map = (entry as Map).cast<String, dynamic>();
+    return SafDirectoryFile(
+      relativePath: map['relativePath'] as String,
+      uri: map['uri'] as String,
+      size: (map['size'] as num).toInt(),
+      lastModifiedMillis: (map['lastModified'] as num?)?.toInt(),
+    );
+  }).toList();
+}
+
+/// Reads the current clipboard image on Android.
+///
+/// The `pasteboard` plugin only sees image URIs on some devices and its
+/// write side is unreliable, so paired sync uses the app channel instead.
+Future<Uint8List?> getClipboardImageAndroid() async {
+  return await _methodChannel.invokeMethod<Uint8List>('getClipboardImage');
+}
+
+/// Writes [bytes] to the Android clipboard as an image.
+Future<void> writeClipboardImageAndroid(Uint8List bytes) async {
+  await _methodChannel.invokeMethod<void>('writeClipboardImage', bytes);
 }
 
 Future<List<FileInfo>?> pickFilesAndroid() async {

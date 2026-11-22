@@ -2,6 +2,8 @@ package org.localsend.localsend_app
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
@@ -14,11 +16,13 @@ import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.Settings
 import android.webkit.MimeTypeMap
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -131,6 +135,12 @@ class MainActivity : FlutterActivity() {
                     result.success(getDownloadsDirectory())
                 }
 
+                "listDirectoryFiles" -> handleListDirectoryFiles(call, result)
+
+                "getClipboardImage" -> handleGetClipboardImage(result)
+
+                "writeClipboardImage" -> handleWriteClipboardImage(call, result)
+
                 "requestLocalNetworkPermission" -> {
                     if (hasLocalNetworkPermission()) {
                         result.success(true)
@@ -165,6 +175,110 @@ class MainActivity : FlutterActivity() {
     @Suppress("DEPRECATION")
     private fun getDownloadsDirectory(): String {
         return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
+    }
+
+    /// Lists every file below a SAF directory tree, with paths relative to the tree root.
+    /// Folder sync stores the picked folder as a `content://` tree URI, which Dart
+    /// cannot scan with `dart:io`, so the periodic scan goes through this handler.
+    private fun handleListDirectoryFiles(call: MethodCall, result: MethodChannel.Result) {
+        val treeUriString = call.argument<String>("treeUri")
+        if (treeUriString.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENT", "Missing treeUri", null)
+            return
+        }
+
+        try {
+            val root = FastDocumentFile.fromTreeUri(this, Uri.parse(treeUriString))
+            val files = mutableListOf<Map<String, Any?>>()
+
+            fun walk(directory: FastDocumentFile, prefix: String) {
+                for (child in directory.listFiles()) {
+                    val relativePath = if (prefix.isEmpty()) child.name else "$prefix/${child.name}"
+                    if (child.isDirectory) {
+                        walk(child, relativePath)
+                    } else if (child.isFile) {
+                        files.add(
+                            mapOf(
+                                "relativePath" to relativePath,
+                                "uri" to child.uri.toString(),
+                                "size" to child.size,
+                                "lastModified" to child.lastModified,
+                            )
+                        )
+                    }
+                }
+            }
+
+            walk(root, "")
+            result.success(files)
+        } catch (e: Exception) {
+            result.error("LIST_FAILED", e.message ?: "Failed to list directory", null)
+        }
+    }
+
+    /// Returns the bytes of the image currently on the clipboard, or null.
+    /// Only the first clip item is considered, mirroring the pasteboard plugin.
+    private fun handleGetClipboardImage(result: MethodChannel.Result) {
+        try {
+            val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = manager.primaryClip
+            if (clip == null || clip.itemCount == 0) {
+                result.success(null)
+                return
+            }
+            val uri = clip.getItemAt(0).uri
+            if (uri == null) {
+                result.success(null)
+                return
+            }
+            val mime = contentResolver.getType(uri)
+            if (mime != null && !mime.startsWith("image")) {
+                result.success(null)
+                return
+            }
+            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            result.success(bytes)
+        } catch (e: Exception) {
+            result.error("CLIPBOARD_IMAGE_READ_FAILED", e.message ?: "Failed to read clipboard image", null)
+        }
+    }
+
+    /// Puts an image on the clipboard. The bytes are written to a cache file
+    /// synchronously (the pasteboard plugin compresses on a background thread and
+    /// publishes an empty file), then exposed through our own FileProvider.
+    private fun handleWriteClipboardImage(call: MethodCall, result: MethodChannel.Result) {
+        val bytes = call.arguments<ByteArray>()
+        if (bytes == null || bytes.isEmpty()) {
+            result.error("INVALID_ARGUMENT", "Missing image bytes", null)
+            return
+        }
+
+        try {
+            val file = File(cacheDir, "localsend_clipboard_image.${imageFileExtension(bytes)}")
+            FileOutputStream(file).use { it.write(bytes) }
+            val uri = FileProvider.getUriForFile(this, "$packageName.clipboardprovider", file)
+            val clip = ClipData.newUri(contentResolver, "LocalSend clipboard image", uri)
+            (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
+            result.success(null)
+        } catch (e: Exception) {
+            result.error("CLIPBOARD_IMAGE_WRITE_FAILED", e.message ?: "Failed to write clipboard image", null)
+        }
+    }
+
+    private fun imageFileExtension(bytes: ByteArray): String {
+        fun startsWith(vararg values: Int): Boolean =
+            bytes.size >= values.size && values.indices.all { (bytes[it].toInt() and 0xFF) == values[it] }
+
+        return when {
+            startsWith(0x89, 0x50, 0x4E, 0x47) -> "png"
+            startsWith(0xFF, 0xD8, 0xFF) -> "jpg"
+            startsWith(0x47, 0x49, 0x46, 0x38) -> "gif"
+            startsWith(0x42, 0x4D) -> "bmp"
+            bytes.size >= 12 &&
+                bytes.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) &&
+                bytes.copyOfRange(8, 12).contentEquals("WEBP".toByteArray()) -> "webp"
+            else -> "png"
+        }
     }
 
     private fun isAnimationsEnabled() : Boolean {

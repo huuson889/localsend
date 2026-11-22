@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:localsend_app/model/cross_file.dart';
 import 'package:localsend_app/model/persistence/sync_settings.dart';
@@ -10,7 +11,12 @@ import 'package:localsend_app/provider/sync/peer_resolver.dart';
 import 'package:localsend_app/provider/sync_settings_provider.dart';
 import 'package:localsend_app/util/determine_image_type.dart';
 import 'package:localsend_app/util/image_converter.dart';
+import 'package:localsend_app/util/native/channel/android_channel.dart' as android_channel;
+import 'package:localsend_app/util/native/platform_check.dart';
+import 'package:localsend_app/util/ui/sync_toast.dart';
+import 'package:localsend_isolates/model/device.dart';
 import 'package:localsend_isolates/model/file_type.dart';
+import 'package:localsend_isolates/model/session_status.dart';
 import 'package:logging/logging.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:refena_flutter/refena_flutter.dart';
@@ -173,6 +179,34 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     state = state.copyWith(lastReceivedAt: DateTime.now());
   }
 
+  /// Sends [files] in a background session and reports whether the transfer
+  /// was actually accepted and finished. `startSession` also returns
+  /// normally when the peer is busy, declines or cannot be reached, so the
+  /// sync bookkeeping must not treat every return as success — otherwise a
+  /// failed clipboard/folder sync would be marked as done and never retried.
+  Future<bool> _sendInBackground({required Device peer, required List<CrossFile> files}) async {
+    final beforeSessionIds = ref.read(sendProvider).keys.toSet();
+    await ref.notifier(sendProvider).startSession(target: peer, files: files, background: true);
+    final remaining = ref
+        .read(sendProvider)
+        .values
+        .where((s) => !beforeSessionIds.contains(s.sessionId) && s.target.fingerprint == peer.fingerprint)
+        .toList();
+    if (remaining.isEmpty) {
+      // Successful background sessions close (and remove) themselves.
+      return true;
+    }
+    const failureStates = {
+      SessionStatus.finishedWithErrors,
+      SessionStatus.declined,
+      SessionStatus.recipientBusy,
+      SessionStatus.tooManyAttempts,
+      SessionStatus.canceledBySender,
+      SessionStatus.canceledByReceiver,
+    };
+    return !remaining.any((s) => failureStates.contains(s.status));
+  }
+
   Future<void> _poll() async {
     if (_sending) {
       return;
@@ -240,15 +274,23 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
         lastModified: null,
         lastAccessed: null,
       );
-      await ref.notifier(sendProvider).startSession(target: peer, files: [file], background: true);
+      showSyncToastLocalized(en: 'Sending clipboard text to ${peer.alias}…', vi: 'Đang gửi clipboard chữ tới ${peer.alias}…');
+      final sent = await _sendInBackground(peer: peer, files: [file]);
+      if (!sent) {
+        state = state.copyWith(lastError: 'Clipboard text was not accepted by ${peer.alias}');
+        showSyncToastLocalized(en: 'Clipboard text sync failed', vi: 'Đồng bộ clipboard chữ thất bại');
+        return;
+      }
       _lastSyncedText = current;
       _lastKnownText = current;
       _lastSendAt = now;
       state = state.copyWith(lastSentAt: now, clearError: true);
+      showSyncToastLocalized(en: 'Clipboard text sent to ${peer.alias}', vi: 'Đã gửi clipboard chữ tới ${peer.alias}');
       _logger.info('Clipboard synced to ${peer.alias} (${bytes.length} bytes)');
     } catch (e) {
       _logger.warning('Clipboard sync send failed: $e');
       state = state.copyWith(lastError: e.toString());
+      showSyncToastLocalized(en: 'Clipboard text sync failed', vi: 'Đồng bộ clipboard chữ thất bại');
     } finally {
       _sending = false;
     }
@@ -261,7 +303,9 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
   Future<void> _pollImage() async {
     Uint8List? bytes;
     try {
-      bytes = await Pasteboard.image;
+      // On Android the pasteboard plugin misses image clips on some devices,
+      // so read the clipboard through the app's own platform channel there.
+      bytes = checkPlatform([TargetPlatform.android]) ? await android_channel.getClipboardImageAndroid() : await Pasteboard.image;
     } catch (e) {
       // No image access (e.g. background on mobile). Retry next tick.
       _logger.fine('Clipboard image read failed: $e');
@@ -325,15 +369,23 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
         lastModified: null,
         lastAccessed: null,
       );
-      await ref.notifier(sendProvider).startSession(target: peer, files: [file], background: true);
+      showSyncToastLocalized(en: 'Sending clipboard image to ${peer.alias}…', vi: 'Đang gửi clipboard hình ảnh tới ${peer.alias}…');
+      final sent = await _sendInBackground(peer: peer, files: [file]);
+      if (!sent) {
+        state = state.copyWith(lastError: 'Clipboard image was not accepted by ${peer.alias}');
+        showSyncToastLocalized(en: 'Clipboard image sync failed', vi: 'Đồng bộ clipboard hình ảnh thất bại');
+        return;
+      }
       _lastSyncedImageSig = signature;
       _lastKnownImageSig = signature;
       _lastSendAt = now;
       state = state.copyWith(lastSentAt: now, clearError: true);
+      showSyncToastLocalized(en: 'Clipboard image sent to ${peer.alias}', vi: 'Đã gửi clipboard hình ảnh tới ${peer.alias}');
       _logger.info('Clipboard image synced to ${peer.alias} (${imageBytes.length} bytes)');
     } catch (e) {
       _logger.warning('Clipboard image sync send failed: $e');
       state = state.copyWith(lastError: e.toString());
+      showSyncToastLocalized(en: 'Clipboard image sync failed', vi: 'Đồng bộ clipboard hình ảnh thất bại');
     } finally {
       _sending = false;
     }
