@@ -410,8 +410,9 @@ class FolderSyncService extends Notifier<FolderSyncState> {
     // A manual "Sync now" sends the folder's current content once, even
     // files that were already synced before.
     final changed = forceSendExisting
-        ? current.keys.where((rel) => !settling.contains(rel)).toList()..sort()
-        : current.entries.where((e) => _lastSynced[e.key] != e.value && !settling.contains(e.key)).map((e) => e.key).toList()..sort();
+        ? current.keys.where((rel) => !settling.contains(rel)).toList()
+        : current.entries.where((e) => _lastSynced[e.key] != e.value && !settling.contains(e.key)).map((e) => e.key).toList();
+    changed.sort();
     if (changed.isEmpty) {
       return;
     }
