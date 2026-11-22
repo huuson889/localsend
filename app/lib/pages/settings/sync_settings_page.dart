@@ -6,6 +6,7 @@ import 'package:localsend_app/provider/sync/background_sync.dart';
 import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
 import 'package:localsend_app/provider/sync/folder_sync_service.dart';
 import 'package:localsend_app/provider/sync_settings_provider.dart';
+import 'package:localsend_app/util/native/open_folder.dart';
 import 'package:localsend_app/util/native/pick_directory_path.dart';
 import 'package:localsend_app/util/native/platform_check.dart';
 import 'package:localsend_app/util/ui/snackbar.dart';
@@ -22,7 +23,8 @@ import 'package:refena_flutter/refena_flutter.dart';
 class _Strings {
   final String title;
   final String intro;
-  final String introNote;
+  final String helpTitle;
+  final String helpBody;
   final String pairedDevice;
   final String noFavorites;
   final String online;
@@ -46,6 +48,7 @@ class _Strings {
   final String folderNote;
   final String noFolder;
   final String chooseFolder;
+  final String openFolder;
   final String clearFolder;
   final String syncedFiles;
   final String lastSync;
@@ -61,7 +64,8 @@ class _Strings {
   const _Strings({
     required this.title,
     required this.intro,
-    required this.introNote,
+    required this.helpTitle,
+    required this.helpBody,
     required this.pairedDevice,
     required this.noFavorites,
     required this.online,
@@ -85,6 +89,7 @@ class _Strings {
     required this.folderNote,
     required this.noFolder,
     required this.chooseFolder,
+    required this.openFolder,
     required this.clearFolder,
     required this.syncedFiles,
     required this.lastSync,
@@ -100,9 +105,10 @@ class _Strings {
 
   static const en = _Strings(
     title: 'Paired Sync',
-    intro: 'Three steps: (1) Favorite the same device on BOTH devices. (2) Turn on a feature below on BOTH devices. (3) Only changes made after setup are synced — nothing is sent until the other device has agreed.',
-    introNote:
-        'If the other device has not favorited this device or has not enabled the same feature, sync attempts are rejected silently there and are not retried for the same content (no spam). After both sides are set up, use the manual sync buttons once to retry. On Android, turning sync on keeps LocalSend running in the background; reading the clipboard still only works while LocalSend is open, so after copying in another app, open LocalSend once and it will catch up.',
+    intro: 'Auto-sync with one trusted device.\nBoth devices must favorite each other and enable the same feature.',
+    helpTitle: 'How it works',
+    helpBody:
+        'Setup: (1) Tap the heart on the same device on BOTH devices and confirm the pairing PIN. (2) Turn on a feature below on BOTH devices. (3) Only changes made after setup are synced; the current clipboard and existing folder files are not sent (use the manual sync buttons to send them once).\n\nIf the other device has not favorited this device or has not enabled the same feature, sync attempts are rejected silently there and are not retried for the same content (no spam). Sync only sends while the paired device is in the discovered list; while it is offline the app waits silently and sends when it appears again.\n\nClipboard: text up to 16 KB, images up to 8 MB. Folder: new/changed files sync both ways, deletions are not synced, last write wins.\n\nOn Android, turning sync on keeps LocalSend running in the background; reading the clipboard still only works while LocalSend is open, so after copying in another app, open LocalSend once and it will catch up.',
     pairedDevice: '1. Paired device',
     noFavorites: 'No favorites yet. Tap the heart on a device in the Send tab to favorite it (it becomes the sync peer automatically), then come back here.',
     online: 'Online',
@@ -111,8 +117,7 @@ class _Strings {
     peer: 'Peer',
     clipboardSync: '2. Clipboard sync',
     autoClipboard: 'Auto-sync clipboard on copy',
-    clipboardNote:
-        'The clipboard you already have is NOT sent at setup; the next copy is. Text up to 16 KB and images up to 8 MB. Desktop works while the app runs (even minimized to tray). On Android, copy in the other app, then open LocalSend once: it reads the clipboard when it comes to the foreground and sends it.',
+    clipboardNote: 'Copy and it sends automatically. On Android: copy, then open LocalSend once.',
     autoSync: 'Auto-sync',
     running: 'running',
     stopped: 'stopped',
@@ -124,9 +129,10 @@ class _Strings {
     clipboardRequested: 'Clipboard sync requested',
     folderSync: '3. Shared folder sync',
     autoFolder: 'Auto-sync shared folder',
-    folderNote: 'Pick the folder first, then turn this on. Files already in the folder are NOT sent at setup; only files created or changed afterwards sync both ways (subfolders preserved). "Sync now" sends the current content once, explicitly. Deletions are not synced; if both sides edit the same file, last write wins.',
+    folderNote: 'Pick a folder, then turn this on. New/changed files sync both ways; deletions do not sync.',
     noFolder: '(no folder selected)',
     chooseFolder: 'Choose folder',
+    openFolder: 'Open folder',
     clearFolder: 'Clear folder',
     syncedFiles: 'Synced files',
     lastSync: 'Last sync',
@@ -142,9 +148,10 @@ class _Strings {
 
   static const vi = _Strings(
     title: 'Đồng bộ theo cặp',
-    intro: 'Ba bước: (1) Bấm tim cùng một thiết bị trên CẢ HAI máy. (2) Bật tính năng bên dưới trên CẢ HAI máy. (3) Chỉ thay đổi sau khi thiết lập mới được đồng bộ — chưa máy nào gửi gì cho đến khi máy kia đồng ý.',
-    introNote:
-        'Nếu máy kia chưa bấm tim máy này hoặc chưa bật cùng tính năng, lần đồng bộ sẽ bị từ chối im lặng ở máy kia và không bị gửi lặp lại với cùng nội dung (không spam). Khi cả hai máy đã thiết lập xong, bấm nút đồng bộ thủ công một lần để thử lại. Trên Android, bật đồng bộ sẽ giữ LocalSend chạy nền; riêng việc đọc clipboard vẫn chỉ được khi LocalSend đang mở, nên copy ở app khác xong hãy mở LocalSend một lần để app tự bắt kịp.',
+    intro: 'Tự đồng bộ với 1 thiết bị tin cậy.\nCả hai máy phải bấm tim nhau và bật cùng tính năng.',
+    helpTitle: 'Cách hoạt động',
+    helpBody:
+        'Thiết lập: (1) Bấm tim cùng một thiết bị trên CẢ HAI máy và xác nhận mã PIN ghép cặp. (2) Bật tính năng bên dưới trên CẢ HAI máy. (3) Chỉ thay đổi sau khi thiết lập mới được đồng bộ; clipboard hiện tại và file sẵn trong thư mục không bị gửi (muốn gửi một lần thì bấm nút đồng bộ thủ công).\n\nNếu máy kia chưa bấm tim máy này hoặc chưa bật cùng tính năng, lần đồng bộ sẽ bị từ chối im lặng ở máy kia và không bị gửi lặp lại với cùng nội dung (không spam). App chỉ gửi khi thiết bị cặp đang có trên danh sách dò thấy; máy kia offline thì app chờ im lặng và tự gửi khi máy xuất hiện lại.\n\nClipboard: chữ tối đa 16 KB, hình ảnh tối đa 8 MB. Thư mục: file mới/thay đổi đồng bộ hai chiều, không đồng bộ file bị xoá, bản ghi sau cùng thắng.\n\nTrên Android, bật đồng bộ sẽ giữ LocalSend chạy nền; riêng việc đọc clipboard vẫn chỉ được khi LocalSend đang mở, nên copy ở app khác xong hãy mở LocalSend một lần để app tự bắt kịp.',
     pairedDevice: '1. Thiết bị đã cặp',
     noFavorites: 'Chưa có thiết bị yêu thích. Bấm biểu tượng tim trên thẻ thiết bị ở thẻ Gửi để thêm (thiết bị sẽ tự thành cặp đồng bộ), rồi quay lại đây.',
     online: 'Trực tuyến',
@@ -153,8 +160,7 @@ class _Strings {
     peer: 'Thiết bị cặp',
     clipboardSync: '2. Đồng bộ clipboard',
     autoClipboard: 'Tự động đồng bộ clipboard khi copy',
-    clipboardNote:
-        'Clipboard đang có sẵn KHÔNG bị gửi lúc thiết lập; lần copy tiếp theo mới được gửi. Chữ tối đa 16 KB, hình ảnh tối đa 8 MB. Máy tính hoạt động khi app đang chạy (kể cả thu nhỏ xuống tray). Trên Android: copy ở app khác, rồi mở LocalSend một lần — app sẽ đọc clipboard khi quay lại tiền cảnh và tự gửi.',
+    clipboardNote: 'Copy là tự gửi. Trên Android: copy xong mở LocalSend một lần.',
     autoSync: 'Tự động đồng bộ',
     running: 'đang chạy',
     stopped: 'đã dừng',
@@ -166,9 +172,10 @@ class _Strings {
     clipboardRequested: 'Đã yêu cầu đồng bộ clipboard',
     folderSync: '3. Đồng bộ thư mục chung',
     autoFolder: 'Tự động đồng bộ thư mục chung',
-    folderNote: 'Chọn thư mục trước, rồi mới bật tính năng này. File đã có sẵn trong thư mục KHÔNG bị gửi lúc thiết lập; chỉ file tạo/sửa sau đó mới đồng bộ hai chiều (giữ nguyên thư mục con). Nút "Đồng bộ ngay" sẽ gửi toàn bộ nội dung hiện tại một lần theo yêu cầu rõ ràng. Không đồng bộ file bị xoá; nếu hai bên sửa cùng một file, bản ghi sau cùng sẽ thắng.',
+    folderNote: 'Chọn thư mục rồi bật. File mới/thay đổi tự đồng bộ 2 chiều; xoá file không đồng bộ.',
     noFolder: '(chưa chọn thư mục)',
     chooseFolder: 'Chọn thư mục',
+    openFolder: 'Mở thư mục',
     clearFolder: 'Bỏ chọn thư mục',
     syncedFiles: 'File đã đồng bộ',
     lastSync: 'Lần đồng bộ cuối',
@@ -207,19 +214,36 @@ class SyncSettingsPage extends StatelessWidget {
     final peerOnline = peerFingerprint != null && nearby.devices[peerFingerprint]?.ip != null;
 
     return Scaffold(
-      appBar: AppBar(title: Text(s.title)),
+      appBar: AppBar(
+        title: Text(s.title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline),
+            tooltip: s.helpTitle,
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (dialogContext) => AlertDialog(
+                  title: Text(s.helpTitle),
+                  content: SingleChildScrollView(child: Text(s.helpBody)),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
       body: ResponsiveListView(
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
         children: [
           Text(
             s.intro,
             textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            s.introNote,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12),
           ),
           const SizedBox(height: 20),
           _Section(
@@ -356,6 +380,19 @@ class SyncSettingsPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
+                  TextButton(
+                    onPressed: sync.syncFolderPath == null
+                        ? null
+                        : () async {
+                            try {
+                              await openFolder(folderPath: sync.syncFolderPath!);
+                            } catch (_) {
+                              // Opening the folder is best-effort (some
+                              // Android file managers refuse SAF trees).
+                            }
+                          },
+                    child: Text(s.openFolder),
+                  ),
                   TextButton(
                     onPressed: checkPlatformWithFileSystem()
                         ? () async {

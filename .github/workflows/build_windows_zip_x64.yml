@@ -109,6 +109,6 @@ jobs:
       - name: Upload signed zip
         uses: actions/upload-artifact@v6
         with:
-          name: windows-zip-x86-64-result
+          name: windows-zip-x86-64-result-${{ needs.build.outputs.version }}
           path: app/LocalSend-${{ needs.build.outputs.version }}-windows-x86-64.zip
           if-no-files-found: error

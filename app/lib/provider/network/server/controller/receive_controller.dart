@@ -25,6 +25,7 @@ import 'package:localsend_app/provider/selection/selected_sending_files_provider
 import 'package:localsend_app/provider/settings_provider.dart';
 import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
 import 'package:localsend_app/provider/sync/folder_sync_service.dart';
+import 'package:localsend_app/provider/sync/pairing_service.dart';
 import 'package:localsend_app/provider/sync_settings_provider.dart';
 import 'package:localsend_app/util/message_preview.dart';
 import 'package:localsend_app/util/native/channel/android_channel.dart' as android_channel;
@@ -112,6 +113,10 @@ class ReceiveController {
     final folderConsent = isSyncPeer && syncSettings.folderSyncEnabled && syncSettings.syncFolderPath != null;
     final isClipboardSync = clipboardConsent && wantsClipboardText;
     final isClipboardImageSync = clipboardConsent && wantsClipboardImage;
+    // Pairing (PIN) handshake: a single text file with a fixed name whose
+    // preview carries the payload. Handled before everything else and
+    // never shown as a regular receive.
+    final pairingPayload = files.length == 1 && files.values.first.fileName == pairingSyncFileName ? files.values.first.preview : null;
     final isFolderSync = folderConsent && hasFolderSyncMarker && !isClipboardSync && !isClipboardImageSync && !isMessageRequestOf(files.values);
     final isUnconsentedSync = ((wantsClipboardText || wantsClipboardImage) && !clipboardConsent) || (hasFolderSyncMarker && !folderConsent);
 
@@ -158,6 +163,16 @@ class ReceiveController {
           sessionId: sessionId,
           statuses: {for (final file in files.values) file.id: FileStatus.queue},
         );
+
+    if (pairingPayload != null) {
+      server.ref.notifier(pairingProvider).handlePayload(
+            sender: event.info.toDevice(event.ip, withChannel: true).copyWith(fingerprint: senderFingerprint),
+            payload: pairingPayload,
+          );
+      // Accept nothing: the payload already arrived as the preview.
+      await acceptFileRequest({});
+      return;
+    }
 
     if (isUnconsentedSync) {
       // Automatic sync from a device this device has not agreed with (not

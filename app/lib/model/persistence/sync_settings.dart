@@ -111,6 +111,12 @@ bool isClipboardSyncImageFileName(String fileName) {
 /// Clipboard images larger than this are not synced.
 const maxClipboardImageBytes = 8 * 1024 * 1024;
 
+/// File name used for pairing (PIN) handshake transfers between two
+/// devices that want to become sync peers. Like clipboard text sync, the
+/// payload travels as the message preview of a single text file; see
+/// `pairing_service.dart` for the payload format.
+const pairingSyncFileName = '__pairing_sync__.txt';
+
 /// Marker file added to every folder-sync session (a 1-byte dummy that the
 /// receiver never saves). It lets the receiver tell an automatic folder
 /// sync apart from a manual file send: sync sessions from a device that

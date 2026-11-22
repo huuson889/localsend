@@ -2,7 +2,6 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:localsend_app/config/theme.dart';
 import 'package:localsend_app/gen/strings.g.dart';
-import 'package:localsend_app/model/persistence/favorite_device.dart';
 import 'package:localsend_app/model/send_mode.dart';
 import 'package:localsend_app/pages/device_details_page.dart';
 import 'package:localsend_app/pages/selected_files_page.dart';
@@ -17,8 +16,7 @@ import 'package:localsend_app/provider/network/send_provider.dart';
 import 'package:localsend_app/provider/selection/selected_sending_files_provider.dart';
 import 'package:localsend_app/provider/settings_provider.dart';
 import 'package:localsend_app/provider/sync/background_sync.dart';
-import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
-import 'package:localsend_app/provider/sync/folder_sync_service.dart';
+import 'package:localsend_app/provider/sync/pairing_service.dart';
 import 'package:localsend_app/provider/sync_settings_provider.dart';
 import 'package:localsend_app/util/favorites.dart';
 import 'package:localsend_app/util/native/file_picker.dart';
@@ -234,31 +232,48 @@ class SendTab extends StatelessWidget {
                               ? null
                               : () async {
                                   if (favoriteEntry != null) {
+                                    // Removing the current sync peer would
+                                    // silently break auto sync: ask first.
+                                    if (ref.read(syncSettingsProvider).syncPeerFingerprint == device.fingerprint) {
+                                      final isVi = Localizations.localeOf(context).languageCode == 'vi';
+                                      final confirmed = await showDialog<bool>(
+                                            context: context,
+                                            builder: (dialogContext) => AlertDialog(
+                                              title: Text(isVi ? 'Bỏ ghép cặp?' : 'Remove pairing?'),
+                                              content: Text(
+                                                isVi
+                                                    ? '${device.alias} đang là thiết bị cặp đồng bộ. Bỏ yêu thích sẽ tắt đồng bộ với thiết bị này.'
+                                                    : '${device.alias} is your sync peer. Removing the favorite will stop sync with this device.',
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                                                  child: Text(isVi ? 'Huỷ' : 'Cancel'),
+                                                ),
+                                                FilledButton(
+                                                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                                                  child: Text(isVi ? 'Bỏ ghép' : 'Remove'),
+                                                ),
+                                              ],
+                                            ),
+                                          ) ??
+                                          false;
+                                      if (!confirmed) {
+                                        return;
+                                      }
+                                    }
                                     await ref.redux(favoritesProvider).dispatchAsync(RemoveFavoriteAction(deviceFingerprint: device.fingerprint));
                                     if (ref.read(syncSettingsProvider).syncPeerFingerprint == device.fingerprint) {
                                       await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(null);
                                       updateSyncBackgroundService(ref);
                                     }
                                   } else {
-                                    await ref.redux(favoritesProvider).dispatchAsync(
-                                      AddFavoriteAction(
-                                        FavoriteDevice.fromValues(
-                                          fingerprint: device.fingerprint,
-                                          ip: device.ip!,
-                                          port: device.port,
-                                          alias: device.alias,
-                                        ),
-                                      ),
-                                    );
-                                    // Pair the newly favorited device for sync right away.
-                                    // Only the pairing is recorded here: the current
-                                    // clipboard/folder content is NOT sent. Sync
-                                    // starts with the next copy/change, and only
-                                    // once the other device has paired back.
-                                    await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(device.fingerprint);
-                                    updateSyncBackgroundService(ref);
-                                    ref.notifier(clipboardSyncProvider).primeCache(); // ignore: unawaited_futures
-                                    ref.notifier(folderSyncProvider).pollNow(); // ignore: unawaited_futures
+                                    // Pairing (PIN): the device is only
+                                    // favorited + set as sync peer after
+                                    // the other side confirms the same PIN
+                                    // (see PairingService). The pairing
+                                    // dialog is shown globally by HomePage.
+                                    await ref.notifier(pairingProvider).startPairing(device);
                                   }
                                 },
                           onDetailsTap: () async => await context.push(() => DeviceDetailsPage(device: device)),

@@ -72,10 +72,15 @@ jobs:
         working-directory: ${{ env.APK_BUILD_DIR }}/app
         run: flutter build apk --debug --target-platform android-arm64
 
+      - name: Rename APK (include version)
+        run: |
+          mv "${{ env.APK_BUILD_DIR }}/app/build/app/outputs/flutter-apk/app-debug.apk" \
+             "${{ env.APK_BUILD_DIR }}/app/build/app/outputs/flutter-apk/LocalSend-${{ needs.build.outputs.version }}-debug-arm64.apk"
+
       - name: Upload APK
         uses: actions/upload-artifact@v6
         with:
-          name: apk-result-debug
+          name: apk-result-debug-${{ needs.build.outputs.version }}
           path: |
-            ${{ env.APK_BUILD_DIR }}/app/build/app/outputs/flutter-apk/app-debug.apk
+            ${{ env.APK_BUILD_DIR }}/app/build/app/outputs/flutter-apk/LocalSend-${{ needs.build.outputs.version }}-debug-arm64.apk
           if-no-files-found: error
