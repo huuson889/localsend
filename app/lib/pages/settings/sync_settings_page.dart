@@ -2,6 +2,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:localsend_app/provider/favorites_provider.dart';
 import 'package:localsend_app/provider/network/nearby_devices_provider.dart';
+import 'package:localsend_app/provider/sync/background_sync.dart';
 import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
 import 'package:localsend_app/provider/sync/folder_sync_service.dart';
 import 'package:localsend_app/provider/sync_settings_provider.dart';
@@ -48,7 +49,7 @@ class SyncSettingsPage extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           const Text(
-            'Both devices must select each other here. Sync only runs while both apps are open and discoverable on the same network.',
+            'Both devices must select each other here and be on the same network. On Android, turning sync on keeps LocalSend running in the background (persistent notification) so folder sync continues with the app closed. Reading the clipboard on Android still only works while the app is open.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12),
           ),
@@ -76,6 +77,10 @@ class SyncSettingsPage extends StatelessWidget {
                         ],
                         onChanged: (fp) async {
                           await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(fp.isEmpty ? null : fp);
+                          updateSyncBackgroundService(ref);
+                          ref.notifier(clipboardSyncProvider).resetSyncCache();
+                          ref.notifier(clipboardSyncProvider).pollNow(); // ignore: unawaited_futures
+                          ref.notifier(folderSyncProvider).pollNow(); // ignore: unawaited_futures
                         },
                       ),
                     ),
@@ -101,11 +106,21 @@ class SyncSettingsPage extends StatelessWidget {
                     ? null
                     : (b) async {
                         await ref.notifier(syncSettingsProvider).setClipboardSyncEnabled(b);
+                        updateSyncBackgroundService(ref);
+                        if (b) {
+                          ref.notifier(clipboardSyncProvider).resetSyncCache();
+                          ref.notifier(clipboardSyncProvider).pollNow(); // ignore: unawaited_futures
+                        }
                       },
               ),
               const Text(
-                'Text only, up to 16 KB. Desktop works while the app runs (even minimized to tray). On Android/iOS the OS restricts background clipboard access, so sync happens while the app is in the foreground.',
+                'Text only, up to 16 KB. Desktop works while the app runs (even minimized to tray). On Android the app stays alive in the background, but the OS only lets apps read the clipboard while in the foreground, so copy while LocalSend is open.',
                 style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Auto-sync: ${clipboardState.running ? 'running' : 'stopped'}  •  Last check: ${clipboardState.lastPollAt?.toLocal().toString() ?? '—'}',
+                style: const TextStyle(fontSize: 12),
               ),
               const SizedBox(height: 8),
               Text(
@@ -138,6 +153,10 @@ class SyncSettingsPage extends StatelessWidget {
                     ? null
                     : (b) async {
                         await ref.notifier(syncSettingsProvider).setFolderSyncEnabled(b);
+                        updateSyncBackgroundService(ref);
+                        if (b) {
+                          ref.notifier(folderSyncProvider).pollNow(); // ignore: unawaited_futures
+                        }
                       },
               ),
               const Text(
@@ -161,6 +180,8 @@ class SyncSettingsPage extends StatelessWidget {
                             final dir = await pickDirectoryPath();
                             if (dir != null) {
                               await ref.notifier(syncSettingsProvider).setSyncFolderPath(dir);
+                              updateSyncBackgroundService(ref);
+                              ref.notifier(folderSyncProvider).pollNow(); // ignore: unawaited_futures
                             }
                           }
                         : null,
@@ -171,12 +192,17 @@ class SyncSettingsPage extends StatelessWidget {
                       tooltip: 'Clear folder',
                       onPressed: () async {
                         await ref.notifier(syncSettingsProvider).setSyncFolderPath(null);
+                        updateSyncBackgroundService(ref);
                       },
                       icon: const Icon(Icons.clear),
                     ),
                 ],
               ),
               const SizedBox(height: 8),
+              Text(
+                'Auto-sync: ${folderState.running ? 'running' : 'stopped'}  •  Last check: ${folderState.lastPollAt?.toLocal().toString() ?? '—'}',
+                style: const TextStyle(fontSize: 12),
+              ),
               Text(
                 'Synced files: ${folderState.syncedFileCount}  •  Last sync: ${folderState.lastSyncAt?.toLocal().toString() ?? '—'}',
                 style: const TextStyle(fontSize: 12),

@@ -21,12 +21,17 @@ const _minSendInterval = Duration(milliseconds: 1500);
 
 class ClipboardSyncState {
   final bool running;
+
+  /// When the poller last checked the clipboard (only while sync is active).
+  /// Lets the UI prove the automatic loop is alive.
+  final DateTime? lastPollAt;
   final DateTime? lastSentAt;
   final DateTime? lastReceivedAt;
   final String? lastError;
 
   const ClipboardSyncState({
     required this.running,
+    required this.lastPollAt,
     required this.lastSentAt,
     required this.lastReceivedAt,
     required this.lastError,
@@ -34,6 +39,7 @@ class ClipboardSyncState {
 
   static const initial = ClipboardSyncState(
     running: false,
+    lastPollAt: null,
     lastSentAt: null,
     lastReceivedAt: null,
     lastError: null,
@@ -41,15 +47,18 @@ class ClipboardSyncState {
 
   ClipboardSyncState copyWith({
     bool? running,
+    DateTime? lastPollAt,
     DateTime? lastSentAt,
     DateTime? lastReceivedAt,
     String? lastError,
+    bool clearError = false,
   }) {
     return ClipboardSyncState(
       running: running ?? this.running,
+      lastPollAt: lastPollAt ?? this.lastPollAt,
       lastSentAt: lastSentAt ?? this.lastSentAt,
       lastReceivedAt: lastReceivedAt ?? this.lastReceivedAt,
-      lastError: lastError ?? this.lastError,
+      lastError: clearError ? null : (lastError ?? this.lastError),
     );
   }
 }
@@ -112,9 +121,27 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
   /// Clears the caches so the current clipboard is sent even if it was
   /// already seen/synced.
   Future<void> syncNow() async {
+    start();
     _lastKnownText = null;
     _lastSyncedText = null;
     await _poll();
+  }
+
+  /// Polls once immediately without clearing the caches. Used when the app
+  /// returns to the foreground or right after sync was enabled, so changes
+  /// made in the meantime are picked up without waiting for the next tick.
+  /// Also revives the periodic timer in case this provider was recreated.
+  Future<void> pollNow() async {
+    start();
+    await _poll();
+  }
+
+  /// Forgets the cached clipboard texts so the next poll treats the current
+  /// clipboard as new. Used after the peer changed or sync was (re-)enabled:
+  /// the current clipboard should be pushed to the (new) peer once.
+  void resetSyncCache() {
+    _lastKnownText = null;
+    _lastSyncedText = null;
   }
 
   /// Called by the receiver when clipboard text was applied from the peer,
@@ -133,6 +160,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     if (!settings.clipboardSyncActive) {
       return;
     }
+    state = state.copyWith(lastPollAt: DateTime.now());
 
     String? current;
     try {
@@ -170,7 +198,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
       return;
     }
 
-    final peer = resolveSyncPeerOnline(ref);
+    final peer = resolveSyncPeer(ref);
     if (peer == null) {
       // Peer offline. Keep _lastKnownText stale so we retry when it appears.
       return;
@@ -193,7 +221,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
       _lastSyncedText = current;
       _lastKnownText = current;
       _lastSendAt = now;
-      state = state.copyWith(lastSentAt: now);
+      state = state.copyWith(lastSentAt: now, clearError: true);
       _logger.info('Clipboard synced to ${peer.alias} (${bytes.length} bytes)');
     } catch (e) {
       _logger.warning('Clipboard sync send failed: $e');

@@ -16,6 +16,7 @@ import 'package:localsend_app/provider/device_info_provider.dart';
 import 'package:localsend_app/provider/network/nearby_devices_provider.dart';
 import 'package:localsend_app/provider/network/server/server_provider.dart';
 import 'package:localsend_app/provider/network/webrtc/signaling_provider.dart';
+import 'package:localsend_app/provider/sync/background_sync.dart';
 import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
 import 'package:localsend_app/provider/sync/folder_sync_service.dart';
 import 'package:localsend_app/provider/persistence_provider.dart';
@@ -250,6 +251,8 @@ Future<void> postInit(BuildContext context, Ref ref, bool appStart) async {
   } catch (e) {
     _logger.warning('Starting sync services failed: $e');
   }
+  // Keep the Android process alive in the background while sync is active.
+  updateSyncBackgroundService(ref);
 
   // ignore: dead_code
   if (webRTCEnabled) {

@@ -25,6 +25,10 @@ const _settleDelay = Duration(seconds: 1);
 
 class FolderSyncState {
   final bool running;
+
+  /// When the poller last scanned the folder (only while sync is active).
+  /// Lets the UI prove the automatic loop is alive.
+  final DateTime? lastPollAt;
   final DateTime? lastSyncAt;
   final int lastSentCount;
   final int syncedFileCount;
@@ -32,6 +36,7 @@ class FolderSyncState {
 
   const FolderSyncState({
     required this.running,
+    required this.lastPollAt,
     required this.lastSyncAt,
     required this.lastSentCount,
     required this.syncedFileCount,
@@ -40,6 +45,7 @@ class FolderSyncState {
 
   static const initial = FolderSyncState(
     running: false,
+    lastPollAt: null,
     lastSyncAt: null,
     lastSentCount: 0,
     syncedFileCount: 0,
@@ -48,17 +54,20 @@ class FolderSyncState {
 
   FolderSyncState copyWith({
     bool? running,
+    DateTime? lastPollAt,
     DateTime? lastSyncAt,
     int? lastSentCount,
     int? syncedFileCount,
     String? lastError,
+    bool clearError = false,
   }) {
     return FolderSyncState(
       running: running ?? this.running,
+      lastPollAt: lastPollAt ?? this.lastPollAt,
       lastSyncAt: lastSyncAt ?? this.lastSyncAt,
       lastSentCount: lastSentCount ?? this.lastSentCount,
       syncedFileCount: syncedFileCount ?? this.syncedFileCount,
-      lastError: lastError ?? this.lastError,
+      lastError: clearError ? null : (lastError ?? this.lastError),
     );
   }
 }
@@ -127,7 +136,19 @@ class FolderSyncService extends Notifier<FolderSyncState> {
   }
 
   /// Forces an immediate poll (used by the "Sync now" button).
-  Future<void> syncNow() => _poll();
+  Future<void> syncNow() async {
+    start();
+    await _poll();
+  }
+
+  /// Polls once immediately. Used when the app returns to the foreground or
+  /// right after sync was enabled, so changes made in the meantime are
+  /// picked up without waiting for the next tick. Also revives the periodic
+  /// timer in case this provider was recreated.
+  Future<void> pollNow() async {
+    start();
+    await _poll();
+  }
 
   /// Records files that were just received from the peer, so the poller
   /// does not send them back. [relativePaths] use `/` separators.
@@ -159,6 +180,7 @@ class FolderSyncService extends Notifier<FolderSyncState> {
     if (!settings.folderSyncActive) {
       return;
     }
+    state = state.copyWith(lastPollAt: DateTime.now());
     final folderPath = settings.syncFolderPath!;
     final directory = Directory(folderPath);
     if (!directory.existsSync()) {
@@ -172,7 +194,7 @@ class FolderSyncService extends Notifier<FolderSyncState> {
       _lastSynced.clear();
     }
 
-    final peer = resolveSyncPeerOnline(ref);
+    final peer = resolveSyncPeer(ref);
     if (peer == null) {
       // Peer offline. Keep baseline stale so files sync when it appears.
       return;
@@ -243,7 +265,12 @@ class FolderSyncService extends Notifier<FolderSyncState> {
         _lastSynced[rel] = current[rel]!;
       }
       final now = DateTime.now();
-      state = state.copyWith(lastSyncAt: now, lastSentCount: batch.length, syncedFileCount: _lastSynced.length);
+      state = state.copyWith(
+        lastSyncAt: now,
+        lastSentCount: batch.length,
+        syncedFileCount: _lastSynced.length,
+        clearError: true,
+      );
       _logger.info('Folder sync: sent ${batch.length} file(s) to ${peer.alias}');
     } catch (e) {
       _logger.warning('Folder sync send failed: $e');
