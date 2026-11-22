@@ -100,6 +100,11 @@ Future<RefenaContainer> preInit(List<String> args) async {
 
   if (persistenceService.isFirstAppStart && !persistenceService.isPortableMode()) {
     await enableContextMenu();
+    if (checkPlatformIsDesktop()) {
+      // Fresh installs autostart hidden in the tray, so receiving and
+      // paired sync work right after login without opening the app first.
+      await enableAutoStart(startHidden: true);
+    }
   }
 
   await initI18n();

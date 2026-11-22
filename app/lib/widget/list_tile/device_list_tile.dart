@@ -18,6 +18,10 @@ class DeviceListTile extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onDetailsTap;
 
+  /// When non-null, a heart button toggles the favorite state of this
+  /// device (filled when [isFavorite]). Tapping takes effect immediately.
+  final VoidCallback? onFavoriteTap;
+
   const DeviceListTile({
     required this.device,
     this.isFavorite = false,
@@ -26,6 +30,7 @@ class DeviceListTile extends StatelessWidget {
     this.progress,
     this.onTap,
     this.onDetailsTap,
+    this.onFavoriteTap,
   });
 
   @override
@@ -43,10 +48,24 @@ class DeviceListTile extends StatelessWidget {
           ],
         ],
       ),
-      trailing: onDetailsTap != null
-          ? IconButton(
-              icon: const Icon(Icons.info_outline),
-              onPressed: onDetailsTap,
+      trailing: (onFavoriteTap != null || onDetailsTap != null)
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (onFavoriteTap != null)
+                  IconButton(
+                    icon: Icon(
+                      isFavorite ? Icons.favorite : Icons.favorite_border,
+                      color: isFavorite ? Colors.red : null,
+                    ),
+                    onPressed: onFavoriteTap,
+                  ),
+                if (onDetailsTap != null)
+                  IconButton(
+                    icon: const Icon(Icons.info_outline),
+                    onPressed: onDetailsTap,
+                  ),
+              ],
             )
           : null,
       subTitle: Wrap(

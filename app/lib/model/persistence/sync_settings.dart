@@ -71,3 +71,25 @@ const clipboardSyncFileName = '__clipboard_sync__.txt';
 /// It matches `maxMessagePreviewBytes` (16 KB): the text travels as the
 /// message preview inside `prepare-upload`, so no file bytes are uploaded.
 const maxClipboardSyncBytes = 16 * 1024;
+
+/// File name prefix for clipboard *image* sync transfers. The full name is
+/// this prefix + the image extension (e.g. `__clipboard_sync__.png`).
+///
+/// Unlike text, the image travels as a regular file upload (it is too large
+/// for the message preview). The receiver recognizes the prefix + paired
+/// sender, writes the image to its clipboard and deletes the transport copy.
+const clipboardSyncImagePrefix = '__clipboard_sync__.';
+
+/// Whether [fileName] belongs to a clipboard image sync transfer.
+/// The extension check also keeps the clipboard *text* file
+/// (`__clipboard_sync__.txt`) from matching.
+bool isClipboardSyncImageFileName(String fileName) {
+  if (!fileName.startsWith(clipboardSyncImagePrefix)) {
+    return false;
+  }
+  final ext = fileName.substring(clipboardSyncImagePrefix.length).toLowerCase();
+  return const {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}.contains(ext);
+}
+
+/// Clipboard images larger than this are not synced.
+const maxClipboardImageBytes = 8 * 1024 * 1024;

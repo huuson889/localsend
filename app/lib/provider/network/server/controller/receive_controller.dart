@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -42,6 +43,7 @@ import 'package:localsend_isolates/rust/api/server.dart' show SessionEndReasonV2
 import 'package:localsend_isolates/util/rust.dart';
 import 'package:localsend_isolates/util/transfer_notification.dart';
 import 'package:logging/logging.dart';
+import 'package:pasteboard/pasteboard.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:refena_flutter/refena_flutter.dart';
 import 'package:routerino/routerino.dart';
@@ -103,13 +105,19 @@ class ReceiveController {
     // normal receive dialog.
     final isSyncPeer = syncSettings.syncPeerFingerprint != null && syncSettings.syncPeerFingerprint == senderFingerprint;
     final isClipboardSync = isSyncPeer && syncSettings.clipboardSyncEnabled && files.length == 1 && files.values.first.fileName == clipboardSyncFileName;
+    final isClipboardImageSync = isSyncPeer && syncSettings.clipboardSyncEnabled && files.length == 1 && isClipboardSyncImageFileName(files.values.first.fileName);
     final isFolderSync = isSyncPeer &&
         syncSettings.folderSyncEnabled &&
         syncSettings.syncFolderPath != null &&
         !isClipboardSync &&
+        !isClipboardImageSync &&
         !isMessageRequestOf(files.values);
 
-    final destinationDir = isFolderSync ? syncSettings.syncFolderPath! : (settings.destination ?? await getDefaultDestinationDirectory());
+    final destinationDir = isFolderSync
+        ? syncSettings.syncFolderPath!
+        : isClipboardImageSync
+        ? cacheDir
+        : (settings.destination ?? await getDefaultDestinationDirectory());
 
     _logger.info('Session Id: $sessionId');
     _logger.info('Destination Directory: $destinationDir');
@@ -136,7 +144,7 @@ class ReceiveController {
           endTime: null,
           destinationDirectory: destinationDir,
           cacheDirectory: cacheDir,
-          saveToGallery: !isFolderSync && checkPlatformWithGallery() && settings.saveToGallery && files.values.every((f) => !f.fileName.contains('/')),
+          saveToGallery: !isFolderSync && !isClipboardImageSync && checkPlatformWithGallery() && settings.saveToGallery && files.values.every((f) => !f.fileName.contains('/')),
           createdDirectories: {},
         ),
       ),
@@ -164,6 +172,16 @@ class ReceiveController {
         }
       }
       await acceptFileRequest({});
+      return;
+    }
+
+    if (isClipboardImageSync) {
+      // The image is saved into the cache directory first; it is written to
+      // the clipboard (and the transport copy deleted) once the upload
+      // finishes, see [onFileUploadResult].
+      await acceptFileRequest({
+        for (final f in files.values) f.id: f.fileName,
+      });
       return;
     }
 
@@ -468,6 +486,37 @@ class ReceiveController {
           syncSettings.syncPeerFingerprint != null &&
           syncSettings.syncPeerFingerprint == session.sender.fingerprint &&
           session.destinationDirectory == syncSettings.syncFolderPath;
+      // Clipboard image sync sessions also finish silently: apply the image
+      // to the clipboard and remove the transport copy from the cache.
+      final isClipboardImageSession = syncSettings.clipboardSyncEnabled &&
+          syncSettings.syncPeerFingerprint != null &&
+          syncSettings.syncPeerFingerprint == session.sender.fingerprint &&
+          session.files.length == 1 &&
+          isClipboardSyncImageFileName(session.files.values.first.file.fileName) &&
+          session.destinationDirectory == session.cacheDirectory;
+      if (isClipboardImageSession) {
+        final savedPath = session.files.values.first.path;
+        var applied = false;
+        if (!hasError && savedPath != null) {
+          try {
+            final bytes = await File(savedPath).readAsBytes();
+            await Pasteboard.writeImage(bytes);
+            server.ref.notifier(clipboardSyncProvider).markReceivedImage(bytes);
+            applied = true;
+            _logger.info('Clipboard image synced from ${session.senderAlias}');
+            await File(savedPath).delete();
+          } catch (e) {
+            _logger.warning('Failed to apply synced clipboard image: $e');
+          }
+        }
+        Future.delayed(Duration.zero, () {
+          closeSession();
+          if (applied) {
+            Routerino.context.showSnackBar('Clipboard image synced from ${session.senderAlias}');
+          }
+        });
+        return;
+      }
       if (isFolderSyncSession) {
         // Only successfully saved files are marked, so failed files are
         // retried on the next poll instead of being lost.

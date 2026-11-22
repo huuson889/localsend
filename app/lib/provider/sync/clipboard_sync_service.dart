@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:localsend_app/model/cross_file.dart';
@@ -7,8 +8,11 @@ import 'package:localsend_app/model/persistence/sync_settings.dart';
 import 'package:localsend_app/provider/network/send_provider.dart';
 import 'package:localsend_app/provider/sync/peer_resolver.dart';
 import 'package:localsend_app/provider/sync_settings_provider.dart';
+import 'package:localsend_app/util/determine_image_type.dart';
+import 'package:localsend_app/util/image_converter.dart';
 import 'package:localsend_isolates/model/file_type.dart';
 import 'package:logging/logging.dart';
+import 'package:pasteboard/pasteboard.dart';
 import 'package:refena_flutter/refena_flutter.dart';
 
 final _logger = Logger('ClipboardSync');
@@ -96,6 +100,13 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
   /// Used to suppress echo loops.
   String? _lastSyncedText;
 
+  /// Signature of the last clipboard image seen by the poller.
+  String? _lastKnownImageSig;
+
+  /// Signature of the last image that was sent to or received from the peer.
+  /// Used to suppress echo loops.
+  String? _lastSyncedImageSig;
+
   DateTime? _lastSendAt;
 
   @override
@@ -122,8 +133,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
   /// already seen/synced.
   Future<void> syncNow() async {
     start();
-    _lastKnownText = null;
-    _lastSyncedText = null;
+    resetSyncCache();
     await _poll();
   }
 
@@ -142,6 +152,8 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
   void resetSyncCache() {
     _lastKnownText = null;
     _lastSyncedText = null;
+    _lastKnownImageSig = null;
+    _lastSyncedImageSig = null;
   }
 
   /// Called by the receiver when clipboard text was applied from the peer,
@@ -149,6 +161,15 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
   void markReceived(String text) {
     _lastSyncedText = text;
     _lastKnownText = text;
+    state = state.copyWith(lastReceivedAt: DateTime.now());
+  }
+
+  /// Called by the receiver when a clipboard image was applied from the
+  /// peer, so the poller does not send it back.
+  void markReceivedImage(Uint8List bytes) {
+    final signature = _imageSignature(bytes);
+    _lastSyncedImageSig = signature;
+    _lastKnownImageSig = signature;
     state = state.copyWith(lastReceivedAt: DateTime.now());
   }
 
@@ -173,6 +194,8 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
 
     if (current == null || current.isEmpty) {
       _lastKnownText = current;
+      // No text on the clipboard: maybe an image was copied instead.
+      await _pollImage();
       return;
     }
     if (current == _lastSyncedText) {
@@ -229,5 +252,112 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     } finally {
       _sending = false;
     }
+  }
+
+  /// Image counterpart of the text poll: reads the clipboard image (via the
+  /// same `pasteboard` plugin the manual "Paste" action uses) and sends it
+  /// as a regular file named `__clipboard_sync__.<ext>`. The receiver
+  /// recognizes the name and writes it back to its clipboard.
+  Future<void> _pollImage() async {
+    Uint8List? bytes;
+    try {
+      bytes = await Pasteboard.image;
+    } catch (e) {
+      // No image access (e.g. background on mobile). Retry next tick.
+      _logger.fine('Clipboard image read failed: $e');
+      return;
+    }
+    if (bytes == null || bytes.isEmpty) {
+      return;
+    }
+    if (bytes.length > maxClipboardImageBytes) {
+      _logger.info('Clipboard image too large (${bytes.length} bytes), skipped');
+      _lastKnownImageSig = _imageSignature(bytes);
+      return;
+    }
+
+    final signature = _imageSignature(bytes);
+    if (signature == _lastSyncedImageSig) {
+      // Already synced (sent or received). Just track it.
+      _lastKnownImageSig = signature;
+      return;
+    }
+    if (signature == _lastKnownImageSig) {
+      // Unchanged since last poll.
+      return;
+    }
+
+    final now = DateTime.now();
+    if (_lastSendAt != null && now.difference(_lastSendAt!) < _minSendInterval) {
+      // Rate limited. Keep the signature stale so we retry next tick.
+      return;
+    }
+
+    final peer = resolveSyncPeer(ref);
+    if (peer == null) {
+      // Peer offline. Keep the signature stale so we retry when it appears.
+      return;
+    }
+
+    // On Windows the clipboard image is a BMP which is large and
+    // inefficient. Convert it to PNG like the manual "Paste" action does.
+    var imageBytes = bytes;
+    var imageType = determineImageType(bytes);
+    if (imageType == 'bmp') {
+      try {
+        imageBytes = await convertBmpToPng(bytes);
+        imageType = 'png';
+      } catch (e) {
+        // Conversion failed: send the BMP as-is.
+      }
+    }
+
+    _sending = true;
+    try {
+      final file = CrossFile(
+        name: '$clipboardSyncImagePrefix$imageType',
+        fileType: FileType.image,
+        size: imageBytes.length,
+        thumbnail: null,
+        asset: null,
+        path: null,
+        bytes: imageBytes,
+        lastModified: null,
+        lastAccessed: null,
+      );
+      await ref.notifier(sendProvider).startSession(target: peer, files: [file], background: true);
+      _lastSyncedImageSig = signature;
+      _lastKnownImageSig = signature;
+      _lastSendAt = now;
+      state = state.copyWith(lastSentAt: now, clearError: true);
+      _logger.info('Clipboard image synced to ${peer.alias} (${imageBytes.length} bytes)');
+    } catch (e) {
+      _logger.warning('Clipboard image sync send failed: $e');
+      state = state.copyWith(lastError: e.toString());
+    } finally {
+      _sending = false;
+    }
+  }
+
+  /// Cheap fingerprint of clipboard image bytes: the length plus an FNV-1a
+  /// hash over three sampled chunks. Recognizes an unchanged screenshot
+  /// without storing megabytes in memory.
+  String _imageSignature(Uint8List bytes) {
+    var hash = 0xcbf29ce484222325;
+    void mixRange(int start, int end) {
+      for (var i = start; i < end; i++) {
+        hash ^= bytes[i];
+        hash = (hash * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF;
+      }
+    }
+
+    const chunk = 4096;
+    mixRange(0, bytes.length < chunk ? bytes.length : chunk);
+    if (bytes.length > chunk) {
+      final mid = bytes.length ~/ 2;
+      mixRange(mid, mid + chunk > bytes.length ? bytes.length : mid + chunk);
+      mixRange(bytes.length - chunk, bytes.length);
+    }
+    return '${bytes.length}:$hash';
   }
 }

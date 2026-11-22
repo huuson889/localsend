@@ -2,18 +2,24 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:localsend_app/config/theme.dart';
 import 'package:localsend_app/gen/strings.g.dart';
+import 'package:localsend_app/model/persistence/favorite_device.dart';
 import 'package:localsend_app/model/send_mode.dart';
 import 'package:localsend_app/pages/device_details_page.dart';
 import 'package:localsend_app/pages/selected_files_page.dart';
 import 'package:localsend_app/pages/tabs/send_tab_vm.dart';
 import 'package:localsend_app/pages/troubleshoot_page.dart';
 import 'package:localsend_app/provider/animation_provider.dart';
+import 'package:localsend_app/provider/favorites_provider.dart';
 import 'package:localsend_app/provider/file_transfer_provider.dart';
 import 'package:localsend_app/provider/network/nearby_devices_provider.dart';
 import 'package:localsend_app/provider/network/scan_facade.dart';
 import 'package:localsend_app/provider/network/send_provider.dart';
 import 'package:localsend_app/provider/selection/selected_sending_files_provider.dart';
 import 'package:localsend_app/provider/settings_provider.dart';
+import 'package:localsend_app/provider/sync/background_sync.dart';
+import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
+import 'package:localsend_app/provider/sync/folder_sync_service.dart';
+import 'package:localsend_app/provider/sync_settings_provider.dart';
 import 'package:localsend_app/util/favorites.dart';
 import 'package:localsend_app/util/native/file_picker.dart';
 import 'package:localsend_app/util/native/platform_check.dart';
@@ -224,6 +230,34 @@ class SendTab extends StatelessWidget {
                           device: device,
                           isFavorite: favoriteEntry != null,
                           nameOverride: favoriteEntry?.alias,
+                          onFavoriteTap: device.ip == null
+                              ? null
+                              : () async {
+                                  if (favoriteEntry != null) {
+                                    await ref.redux(favoritesProvider).dispatchAsync(RemoveFavoriteAction(deviceFingerprint: device.fingerprint));
+                                    if (ref.read(syncSettingsProvider).syncPeerFingerprint == device.fingerprint) {
+                                      await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(null);
+                                      updateSyncBackgroundService(ref);
+                                    }
+                                  } else {
+                                    await ref.redux(favoritesProvider).dispatchAsync(
+                                      AddFavoriteAction(
+                                        FavoriteDevice.fromValues(
+                                          fingerprint: device.fingerprint,
+                                          ip: device.ip!,
+                                          port: device.port,
+                                          alias: device.alias,
+                                        ),
+                                      ),
+                                    );
+                                    // Pair the newly favorited device for sync right away.
+                                    await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(device.fingerprint);
+                                    updateSyncBackgroundService(ref);
+                                    ref.notifier(clipboardSyncProvider).resetSyncCache();
+                                    ref.notifier(clipboardSyncProvider).pollNow(); // ignore: unawaited_futures
+                                    ref.notifier(folderSyncProvider).pollNow(); // ignore: unawaited_futures
+                                  }
+                                },
                           onDetailsTap: () async => await context.push(() => DeviceDetailsPage(device: device)),
                           onTap: () async => await vm.onTapDevice(context, device),
                         ),

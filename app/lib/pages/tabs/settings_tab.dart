@@ -44,6 +44,7 @@ class SettingsTab extends StatelessWidget {
       provider: (ref) => settingsTabControllerProvider,
       builder: (context, vm) {
         final ref = context.ref;
+        final isVi = Localizations.localeOf(context).languageCode == 'vi';
         return ResponsiveListView(
           padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 40),
           children: [
@@ -52,6 +53,18 @@ class SettingsTab extends StatelessWidget {
               child: Text(t.settingsTab.title, style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
             ),
             const SizedBox(height: 30),
+            _SettingsSection(
+              title: isVi ? 'Đồng bộ theo cặp' : 'Paired Sync',
+              children: [
+                _ButtonEntry(
+                  label: isVi ? 'Đồng bộ clipboard + thư mục chung' : 'Clipboard + shared folder sync',
+                  buttonLabel: t.general.open,
+                  onTap: () async {
+                    await context.push(() => const SyncSettingsPage());
+                  },
+                ),
+              ],
+            ),
             _SettingsSection(
               title: t.settingsTab.general.title,
               children: [
@@ -291,18 +304,6 @@ class SettingsTab extends StatelessWidget {
                       }
                     },
                   ),
-              ],
-            ),
-            _SettingsSection(
-              title: 'Paired Sync',
-              children: [
-                _ButtonEntry(
-                  label: 'Clipboard + shared folder sync',
-                  buttonLabel: t.general.open,
-                  onTap: () async {
-                    await context.push(() => const SyncSettingsPage());
-                  },
-                ),
               ],
             ),
             if (vm.advanced)

@@ -532,7 +532,9 @@ class PersistenceService {
   }
 
   bool isMinimizeToTray() {
-    return _prefs.getBool(_minimizeToTray) ?? false;
+    // Enabled by default so the app (and paired sync) keeps running after
+    // the window is closed. Users who turned it off keep their choice.
+    return _prefs.getBool(_minimizeToTray) ?? true;
   }
 
   Future<void> setMinimizeToTray(bool minimizeToTray) async {
