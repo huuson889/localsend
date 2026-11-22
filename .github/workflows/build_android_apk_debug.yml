@@ -65,16 +65,17 @@ jobs:
         working-directory: ${{ env.APK_BUILD_DIR }}/app
         run: flutter pub get
 
-      - name: Build APK (debug)
+      # Single APK for modern 64-bit ARM phones (no split-per-abi): one
+      # output file, and it skips building the x86_64/armeabi-v7a native
+      # libraries entirely, which also makes the build faster.
+      - name: Build APK (debug, arm64 only)
         working-directory: ${{ env.APK_BUILD_DIR }}/app
-        run: flutter build apk --debug --split-per-abi
+        run: flutter build apk --debug --target-platform android-arm64
 
       - name: Upload APK
         uses: actions/upload-artifact@v6
         with:
           name: apk-result-debug
           path: |
-            ${{ env.APK_BUILD_DIR }}/app/build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk
-            ${{ env.APK_BUILD_DIR }}/app/build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
-            ${{ env.APK_BUILD_DIR }}/app/build/app/outputs/flutter-apk/app-x86_64-debug.apk
+            ${{ env.APK_BUILD_DIR }}/app/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
