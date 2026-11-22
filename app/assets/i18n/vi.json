@@ -161,6 +161,22 @@
       "privacyPolicy": "Chính sách bảo mật",
       "termsOfUse": "Điều khoản sử dụng"
     },
+    "sync": {
+      "title": "Đồng bộ thiết bị",
+      "peer": "Thiết bị ghép cặp",
+      "peerNone": "Không chọn",
+      "peerOffline": "Ngoại tuyến (sẽ thử lại)",
+      "peerOnline": "Trực tuyến",
+      "clipboardTitle": "Đồng bộ clipboard",
+      "clipboardToggle": "Tự động đồng bộ clipboard khi copy",
+      "clipboardDesc": "Chỉ văn bản, tối đa 16 KB. Máy tính hoạt động khi app đang chạy (kể cả thu nhỏ xuống tray). Trên Android/iOS hệ điều hành giới hạn đọc clipboard ở nền, nên đồng bộ khi app đang mở.",
+      "folderTitle": "Đồng bộ folder chung",
+      "folderToggle": "Tự động đồng bộ folder chung",
+      "folderDesc": "File mới và file thay đổi được đồng bộ 2 chiều (giữ nguyên thư mục con). Xóa file không được đồng bộ. Nếu cả 2 máy sửa cùng file, file lưu sau thắng.",
+      "chooseFolder": "Chọn folder",
+      "syncNow": "Đồng bộ ngay",
+      "sendClipboardNow": "Gửi clipboard ngay"
+    },
     "advancedSettings": "Cài đặt nâng cao"
   },
   "troubleshootPage": {

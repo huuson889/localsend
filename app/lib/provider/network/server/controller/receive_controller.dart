@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:localsend_app/model/persistence/sync_settings.dart';
 import 'package:localsend_app/model/state/server/receive_session_state.dart';
 import 'package:localsend_app/model/state/server/receiving_file.dart';
 import 'package:localsend_app/pages/home_page.dart';
@@ -22,9 +24,14 @@ import 'package:localsend_app/provider/security_provider.dart';
 import 'package:localsend_app/provider/selection/selected_receiving_files_provider.dart';
 import 'package:localsend_app/provider/selection/selected_sending_files_provider.dart';
 import 'package:localsend_app/provider/settings_provider.dart';
+import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
+import 'package:localsend_app/provider/sync/folder_sync_service.dart';
+import 'package:localsend_app/provider/sync_settings_provider.dart';
+import 'package:localsend_app/util/message_preview.dart';
 import 'package:localsend_app/util/native/directories.dart';
 import 'package:localsend_app/util/native/platform_check.dart';
 import 'package:localsend_app/util/native/tray_helper.dart';
+import 'package:localsend_app/util/ui/snackbar.dart';
 import 'package:localsend_app/widget/dialogs/open_file_dialog.dart';
 import 'package:localsend_isolates/isolate.dart';
 import 'package:localsend_isolates/model/device.dart';
@@ -76,7 +83,7 @@ class ReceiveController {
     }
 
     final settings = server.ref.read(settingsProvider);
-    final destinationDir = settings.destination ?? await getDefaultDestinationDirectory();
+    final syncSettings = server.ref.read(syncSettingsProvider);
     final cacheDir = await getCacheDirectory();
     final sessionId = event.sessionId;
     final files = {
@@ -87,6 +94,22 @@ class ReceiveController {
     // self-reported fingerprint in the JSON payload which is only used as fallback
     // when encryption is disabled.
     final senderFingerprint = event.certFingerprint ?? event.info.fingerprint;
+    final senderAlias = server.ref.read(favoritesProvider).firstWhereOrNull((e) => e.fingerprint == senderFingerprint)?.alias ?? event.info.alias;
+
+    // Paired-device sync: only the selected trusted peer can trigger it.
+    // Clipboard sync reuses the message transfer (fixed file name + preview).
+    // Folder sync saves straight into the shared folder and auto-accepts.
+    // Manual text messages from the peer are excluded so they still show the
+    // normal receive dialog.
+    final isSyncPeer = syncSettings.syncPeerFingerprint != null && syncSettings.syncPeerFingerprint == senderFingerprint;
+    final isClipboardSync = isSyncPeer && syncSettings.clipboardSyncEnabled && files.length == 1 && files.values.first.fileName == clipboardSyncFileName;
+    final isFolderSync = isSyncPeer &&
+        syncSettings.folderSyncEnabled &&
+        syncSettings.syncFolderPath != null &&
+        !isClipboardSync &&
+        !isMessageRequestOf(files.values);
+
+    final destinationDir = isFolderSync ? syncSettings.syncFolderPath! : (settings.destination ?? await getDefaultDestinationDirectory());
 
     _logger.info('Session Id: $sessionId');
     _logger.info('Destination Directory: $destinationDir');
@@ -97,7 +120,7 @@ class ReceiveController {
           sessionId: sessionId,
           status: SessionStatus.waiting,
           sender: event.info.toDevice(event.ip, withChannel: false).copyWith(fingerprint: senderFingerprint),
-          senderAlias: server.ref.read(favoritesProvider).firstWhereOrNull((e) => e.fingerprint == senderFingerprint)?.alias ?? event.info.alias,
+          senderAlias: senderAlias,
           files: {
             for (final file in files.values)
               file.id: ReceivingFile(
@@ -113,7 +136,7 @@ class ReceiveController {
           endTime: null,
           destinationDirectory: destinationDir,
           cacheDirectory: cacheDir,
-          saveToGallery: checkPlatformWithGallery() && settings.saveToGallery && files.values.every((f) => !f.fileName.contains('/')),
+          saveToGallery: !isFolderSync && checkPlatformWithGallery() && settings.saveToGallery && files.values.every((f) => !f.fileName.contains('/')),
           createdDirectories: {},
         ),
       ),
@@ -125,6 +148,33 @@ class ReceiveController {
           sessionId: sessionId,
           statuses: {for (final file in files.values) file.id: FileStatus.queue},
         );
+
+    if (isClipboardSync) {
+      // The text already arrived as the message preview: apply it to the
+      // clipboard and accept nothing (no file upload needed).
+      final preview = files.values.first.preview;
+      if (preview != null) {
+        try {
+          await Clipboard.setData(ClipboardData(text: preview));
+          server.ref.notifier(clipboardSyncProvider).markReceived(preview);
+          _logger.info('Clipboard synced from $senderAlias');
+          Routerino.context.showSnackBar('Clipboard synced from $senderAlias');
+        } catch (e) {
+          _logger.warning('Failed to apply synced clipboard: $e');
+        }
+      }
+      await acceptFileRequest({});
+      return;
+    }
+
+    if (isFolderSync) {
+      // Save straight into the shared folder without any dialog or progress
+      // page. Completion is handled in [onFileUploadResult].
+      await acceptFileRequest({
+        for (final f in files.values) f.id: f.fileName,
+      });
+      return;
+    }
 
     bool quickSave = settings.quickSave && server.getState().session?.isMessageRequest != true;
     final quickSaveFromFavorites = settings.quickSaveFromFavorites && server.getState().session?.isMessageRequest != true;
@@ -410,6 +460,30 @@ class ReceiveController {
         ),
       );
       final settings = server.ref.read(settingsProvider);
+      // Folder sync sessions finish silently: mark files as received so the
+      // poller does not echo them back, then close without any dialog.
+      final syncSettings = server.ref.read(syncSettingsProvider);
+      final isFolderSyncSession = syncSettings.folderSyncEnabled &&
+          syncSettings.syncFolderPath != null &&
+          syncSettings.syncPeerFingerprint != null &&
+          syncSettings.syncPeerFingerprint == session.sender.fingerprint &&
+          session.destinationDirectory == syncSettings.syncFolderPath;
+      if (isFolderSyncSession) {
+        // Only successfully saved files are marked, so failed files are
+        // retried on the next poll instead of being lost.
+        server.ref.notifier(folderSyncProvider).markReceived([
+          for (final f in session.files.values)
+            if (f.path != null) f.file.fileName,
+        ]);
+        Future.delayed(Duration.zero, () {
+          closeSession();
+          Routerino.context.showSnackBar(
+            hasError ? 'Folder sync finished with errors' : 'Folder synced from ${session.senderAlias}',
+          );
+        });
+        _logger.info('Folder sync session finished.');
+        return;
+      }
       // Only auto-close fully successful sessions: a failed file may still be
       // retried by the sender (e.g. after a checksum mismatch), which requires
       // the session to stay open.
