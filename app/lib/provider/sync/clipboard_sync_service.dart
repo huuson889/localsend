@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:localsend_app/model/cross_file.dart';
 import 'package:localsend_app/model/persistence/sync_settings.dart';
