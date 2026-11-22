@@ -220,8 +220,8 @@ class SyncSettingsPage extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.help_outline),
             tooltip: s.helpTitle,
-            onPressed: () {
-              showDialog(
+            onPressed: () async {
+              await showDialog(
                 context: context,
                 builder: (dialogContext) => AlertDialog(
                   title: Text(s.helpTitle),

@@ -132,7 +132,7 @@ class PairingService extends Notifier<PairingState> {
         return;
       }
       if (parts[2] == 'ACCEPT') {
-        _completeOutgoingPairing(); // ignore: unawaited_futures
+        unawaited(_completeOutgoingPairing());
       } else {
         _outgoingTimer?.cancel();
         state = PairingState(incoming: state.incoming);

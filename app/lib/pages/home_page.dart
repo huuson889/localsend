@@ -86,6 +86,7 @@ class _HomePageState extends State<HomePage> with Refena {
         if (!mounted) {
           return;
         }
+        // ignore: discarded_futures
         showDialog(context: context, barrierDismissible: false, builder: (_) => const _PairingDialog()).whenComplete(() {
           _pairingDialogVisible = false;
         });
