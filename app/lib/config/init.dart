@@ -16,6 +16,8 @@ import 'package:localsend_app/provider/device_info_provider.dart';
 import 'package:localsend_app/provider/network/nearby_devices_provider.dart';
 import 'package:localsend_app/provider/network/server/server_provider.dart';
 import 'package:localsend_app/provider/network/webrtc/signaling_provider.dart';
+import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
+import 'package:localsend_app/provider/sync/folder_sync_service.dart';
 import 'package:localsend_app/provider/persistence_provider.dart';
 // [FOSS_REMOVE_START]
 import 'package:localsend_app/provider/purchase_provider.dart';
@@ -238,6 +240,15 @@ Future<void> postInit(BuildContext context, Ref ref, bool appStart) async {
     ref.redux(nearbyDevicesProvider).dispatchAsync(StartDiscoveryListener()); // ignore: unawaited_futures
   } catch (e) {
     _logger.warning('Starting discovery listener failed', e);
+  }
+
+  // Paired-device sync services poll settings on every tick, so they can
+  // stay running and no-op while disabled.
+  try {
+    ref.notifier(clipboardSyncProvider).start();
+    ref.notifier(folderSyncProvider).start();
+  } catch (e) {
+    _logger.warning('Starting sync services failed: $e');
   }
 
   // ignore: dead_code

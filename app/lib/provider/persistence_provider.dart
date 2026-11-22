@@ -58,6 +58,12 @@ const _receiveHistory = 'ls_receive_history';
 // Favorites
 const _favorites = 'ls_favorites';
 
+// Paired-device sync (clipboard + shared folder)
+const _syncPeerFingerprint = 'ls_sync_peer_fingerprint';
+const _clipboardSyncEnabled = 'ls_clipboard_sync_enabled';
+const _folderSyncEnabled = 'ls_folder_sync_enabled';
+const _syncFolderPath = 'ls_sync_folder_path';
+
 // App Window Offset and Size info
 const _windowOffsetX = 'ls_window_offset_x';
 const _windowOffsetY = 'ls_window_offset_y';
@@ -273,6 +279,46 @@ class PersistenceService {
   Future<void> setFavorites(List<FavoriteDevice> entries) async {
     final favoritesRaw = entries.map((entry) => jsonEncode(entry.toJson())).toList();
     await _prefs.setStringList(_favorites, favoritesRaw);
+  }
+
+  String? getSyncPeerFingerprint() {
+    return _prefs.getString(_syncPeerFingerprint);
+  }
+
+  Future<void> setSyncPeerFingerprint(String? fingerprint) async {
+    if (fingerprint == null) {
+      await _prefs.remove(_syncPeerFingerprint);
+    } else {
+      await _prefs.setString(_syncPeerFingerprint, fingerprint);
+    }
+  }
+
+  bool isClipboardSyncEnabled() {
+    return _prefs.getBool(_clipboardSyncEnabled) ?? false;
+  }
+
+  Future<void> setClipboardSyncEnabled(bool enabled) async {
+    await _prefs.setBool(_clipboardSyncEnabled, enabled);
+  }
+
+  bool isFolderSyncEnabled() {
+    return _prefs.getBool(_folderSyncEnabled) ?? false;
+  }
+
+  Future<void> setFolderSyncEnabled(bool enabled) async {
+    await _prefs.setBool(_folderSyncEnabled, enabled);
+  }
+
+  String? getSyncFolderPath() {
+    return _prefs.getString(_syncFolderPath);
+  }
+
+  Future<void> setSyncFolderPath(String? path) async {
+    if (path == null) {
+      await _prefs.remove(_syncFolderPath);
+    } else {
+      await _prefs.setString(_syncFolderPath, path);
+    }
   }
 
   String getShowToken() {

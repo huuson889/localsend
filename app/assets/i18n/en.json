@@ -161,6 +161,22 @@
       "privacyPolicy": "Privacy Policy",
       "termsOfUse": "Terms of Use"
     },
+    "sync": {
+      "title": "Paired Sync",
+      "peer": "Paired device",
+      "peerNone": "None",
+      "peerOffline": "Offline (will retry)",
+      "peerOnline": "Online",
+      "clipboardTitle": "Clipboard sync",
+      "clipboardToggle": "Auto-sync clipboard on copy",
+      "clipboardDesc": "Text only, up to 16 KB. Desktop works while the app runs (even minimized to tray). On Android/iOS the OS restricts background clipboard access, so sync happens while the app is in the foreground.",
+      "folderTitle": "Shared folder sync",
+      "folderToggle": "Auto-sync shared folder",
+      "folderDesc": "New and changed files sync both ways (subfolders preserved). Deletions are not synced. If both sides edit the same file, last write wins.",
+      "chooseFolder": "Choose folder",
+      "syncNow": "Sync now",
+      "sendClipboardNow": "Send clipboard now"
+    },
     "advancedSettings": "Advanced settings"
   },
   "troubleshootPage": {
