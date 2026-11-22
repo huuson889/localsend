@@ -212,8 +212,21 @@ class _HomePageState extends State<HomePage> with Refena {
 /// request started with the heart button, and the confirm prompt for an
 /// incoming request. Closes itself when the pairing state resolves
 /// (accepted, declined, cancelled or timed out).
-class _PairingDialog extends StatelessWidget {
+///
+/// The dialog is closed from exactly one place: the state watcher below,
+/// guarded by [_PairingDialogState._closing]. The action buttons only
+/// update the pairing state and never pop themselves — popping in both
+/// places closed the dialog twice and then popped the page underneath
+/// it, leaving a black screen.
+class _PairingDialog extends StatefulWidget {
   const _PairingDialog();
+
+  @override
+  State<_PairingDialog> createState() => _PairingDialogState();
+}
+
+class _PairingDialogState extends State<_PairingDialog> {
+  bool _closing = false;
 
   String _formatPin(String pin) => pin.length == 6 ? '${pin.substring(0, 3)} ${pin.substring(3)}' : pin;
 
@@ -226,11 +239,14 @@ class _PairingDialog extends StatelessWidget {
         final incoming = pairing.incoming;
         final outgoing = pairing.outgoing;
         if (incoming == null && outgoing == null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (context.mounted && Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            }
-          });
+          if (!_closing) {
+            _closing = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            });
+          }
           return const SizedBox.shrink();
         }
         final pinStyle = Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 4);
@@ -260,16 +276,16 @@ class _PairingDialog extends StatelessWidget {
             ),
             actions: [
               TextButton(
+                // No Navigator.pop here: clearing the pairing state
+                // makes the watcher above close the dialog (once).
                 onPressed: () async {
                   await ref.notifier(pairingProvider).declineIncoming();
-                  if (context.mounted) Navigator.of(context).pop();
                 },
                 child: Text(isVi ? 'Từ chối' : 'Decline'),
               ),
               FilledButton(
                 onPressed: () async {
                   await ref.notifier(pairingProvider).acceptIncoming();
-                  if (context.mounted) Navigator.of(context).pop();
                 },
                 child: Text(isVi ? 'Chấp nhận' : 'Accept'),
               ),
@@ -299,9 +315,10 @@ class _PairingDialog extends StatelessWidget {
           ),
           actions: [
             TextButton(
+              // No Navigator.pop here: clearing the pairing state
+              // makes the watcher above close the dialog (once).
               onPressed: () {
                 ref.notifier(pairingProvider).cancelOutgoing();
-                Navigator.of(context).pop();
               },
               child: Text(isVi ? 'Huỷ' : 'Cancel'),
             ),
