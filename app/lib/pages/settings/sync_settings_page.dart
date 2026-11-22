@@ -1,5 +1,7 @@
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:localsend_app/pages/home_page.dart';
+import 'package:localsend_app/pages/home_page_controller.dart';
 import 'package:localsend_app/provider/favorites_provider.dart';
 import 'package:localsend_app/provider/network/nearby_devices_provider.dart';
 import 'package:localsend_app/provider/sync/background_sync.dart';
@@ -10,7 +12,6 @@ import 'package:localsend_app/util/native/open_folder.dart';
 import 'package:localsend_app/util/native/pick_directory_path.dart';
 import 'package:localsend_app/util/native/platform_check.dart';
 import 'package:localsend_app/util/ui/snackbar.dart';
-import 'package:localsend_app/widget/custom_dropdown_button.dart';
 import 'package:localsend_app/widget/responsive_list_view.dart';
 import 'package:refena_flutter/refena_flutter.dart';
 
@@ -26,10 +27,15 @@ class _Strings {
   final String helpTitle;
   final String helpBody;
   final String pairedDevice;
-  final String noFavorites;
+  final String notPaired;
+  final String pairDevice;
+  final String pairHint;
+  final String unpair;
+  final String unpairTitle;
+  final String unpairContent;
+  final String cancel;
   final String online;
   final String offline;
-  final String none;
   final String peer;
   final String clipboardSync;
   final String autoClipboard;
@@ -67,10 +73,15 @@ class _Strings {
     required this.helpTitle,
     required this.helpBody,
     required this.pairedDevice,
-    required this.noFavorites,
+    required this.notPaired,
+    required this.pairDevice,
+    required this.pairHint,
+    required this.unpair,
+    required this.unpairTitle,
+    required this.unpairContent,
+    required this.cancel,
     required this.online,
     required this.offline,
-    required this.none,
     required this.peer,
     required this.clipboardSync,
     required this.autoClipboard,
@@ -110,10 +121,15 @@ class _Strings {
     helpBody:
         'Setup: (1) Tap the heart on the same device on BOTH devices and confirm the pairing PIN. (2) Turn on a feature below on BOTH devices. (3) Only changes made after setup are synced; the current clipboard and existing folder files are not sent (use the manual sync buttons to send them once).\n\nIf the other device has not favorited this device or has not enabled the same feature, sync attempts are rejected silently there and are not retried for the same content (no spam). Sync only sends while the paired device is in the discovered list; while it is offline the app waits silently and sends when it appears again.\n\nClipboard: text up to 16 KB, images up to 8 MB. Folder: new/changed files sync both ways, deletions are not synced, last write wins.\n\nOn Android, turning sync on keeps LocalSend running in the background; reading the clipboard still only works while LocalSend is open, so after copying in another app, open LocalSend once and it will catch up.',
     pairedDevice: '1. Paired device',
-    noFavorites: 'No favorites yet. Tap the heart on a device in the Send tab to favorite it (it becomes the sync peer automatically), then come back here.',
+    notPaired: 'No paired device yet.',
+    pairDevice: 'Pair a device',
+    pairHint: 'Go to the Send tab, tap the heart on the device and confirm the PIN on both devices.',
+    unpair: 'Unpair',
+    unpairTitle: 'Unpair this device?',
+    unpairContent: 'The device will be removed from favorites and sync with it will stop. You can pair again at any time.',
+    cancel: 'Cancel',
     online: 'Online',
     offline: 'Offline (waiting, not sending)',
-    none: 'None',
     peer: 'Peer',
     clipboardSync: '2. Clipboard sync',
     autoClipboard: 'Auto-sync clipboard on copy',
@@ -153,10 +169,15 @@ class _Strings {
     helpBody:
         'Thiết lập: (1) Bấm tim cùng một thiết bị trên CẢ HAI máy và xác nhận mã PIN ghép cặp. (2) Bật tính năng bên dưới trên CẢ HAI máy. (3) Chỉ thay đổi sau khi thiết lập mới được đồng bộ; clipboard hiện tại và file sẵn trong thư mục không bị gửi (muốn gửi một lần thì bấm nút đồng bộ thủ công).\n\nNếu máy kia chưa bấm tim máy này hoặc chưa bật cùng tính năng, lần đồng bộ sẽ bị từ chối im lặng ở máy kia và không bị gửi lặp lại với cùng nội dung (không spam). App chỉ gửi khi thiết bị cặp đang có trên danh sách dò thấy; máy kia offline thì app chờ im lặng và tự gửi khi máy xuất hiện lại.\n\nClipboard: chữ tối đa 16 KB, hình ảnh tối đa 8 MB. Thư mục: file mới/thay đổi đồng bộ hai chiều, không đồng bộ file bị xoá, bản ghi sau cùng thắng.\n\nTrên Android, bật đồng bộ sẽ giữ LocalSend chạy nền; riêng việc đọc clipboard vẫn chỉ được khi LocalSend đang mở, nên copy ở app khác xong hãy mở LocalSend một lần để app tự bắt kịp.',
     pairedDevice: '1. Thiết bị đã cặp',
-    noFavorites: 'Chưa có thiết bị yêu thích. Bấm biểu tượng tim trên thẻ thiết bị ở thẻ Gửi để thêm (thiết bị sẽ tự thành cặp đồng bộ), rồi quay lại đây.',
+    notPaired: 'Chưa có thiết bị cặp.',
+    pairDevice: 'Ghép cặp thiết bị',
+    pairHint: 'Qua thẻ Gửi, bấm tim thiết bị kia và xác nhận mã PIN trên cả hai máy.',
+    unpair: 'Huỷ ghép',
+    unpairTitle: 'Huỷ ghép thiết bị này?',
+    unpairContent: 'Thiết bị sẽ bị bỏ khỏi yêu thích và đồng bộ với nó sẽ dừng. Bạn có thể ghép cặp lại bất cứ lúc nào.',
+    cancel: 'Huỷ',
     online: 'Trực tuyến',
     offline: 'Ngoại tuyến (đang chờ, không gửi)',
-    none: 'Không chọn',
     peer: 'Thiết bị cặp',
     clipboardSync: '2. Đồng bộ clipboard',
     autoClipboard: 'Tự động đồng bộ clipboard khi copy',
@@ -249,45 +270,90 @@ class SyncSettingsPage extends StatelessWidget {
           _Section(
             title: s.pairedDevice,
             children: [
-              if (favorites.isEmpty)
+              // Auto sync is strictly 1:1: this section shows the single
+              // device that completed PIN pairing with this device. There
+              // is deliberately no picker here — pairing (and re-pairing)
+              // happens via the heart button + PIN, so the peer shown here
+              // has always agreed from both sides.
+              if (peerFingerprint == null) ...[
                 Text(
-                  s.noFavorites,
+                  s.notPaired,
                   style: const TextStyle(fontSize: 13),
-                )
-              else
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  s.pairHint,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton(
+                    onPressed: () {
+                      ref.redux(homePageControllerProvider).dispatch(ChangeTabAction(HomeTab.send));
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop();
+                      }
+                    },
+                    child: Text(s.pairDevice),
+                  ),
+                ),
+              ] else ...[
                 Row(
                   children: [
-                    Expanded(child: Text(peerOnline ? s.online : s.offline)),
-                    const SizedBox(width: 10),
-                    SizedBox(
-                      width: 180,
-                      child: CustomDropdownButton<String>(
-                        value: peerFingerprint ?? '',
-                        items: [
-                          DropdownMenuItem(value: '', child: Text(s.none)),
-                          for (final fav in favorites) DropdownMenuItem(value: fav.fingerprint, child: Text(fav.alias, overflow: TextOverflow.ellipsis)),
-                        ],
-                        onChanged: (fp) async {
-                          await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(fp.isEmpty ? null : fp);
-                          updateSyncBackgroundService(ref);
-                          // Changing the peer must not send the current
-                          // clipboard/folder content: only record the
-                          // baseline. New changes from now on will sync.
-                          ref.notifier(clipboardSyncProvider).primeCache(); // ignore: unawaited_futures
-                          ref.notifier(folderSyncProvider).pollNow(); // ignore: unawaited_futures
-                        },
+                    Icon(Icons.circle, size: 12, color: peerOnline ? Colors.green : Colors.orange),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        peerFavorite?.alias ?? peerFingerprint,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
                       ),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (dialogContext) => AlertDialog(
+                                title: Text(s.unpairTitle),
+                                content: Text(s.unpairContent),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                                    child: Text(s.cancel),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                                    child: Text(s.unpair),
+                                  ),
+                                ],
+                              ),
+                            ) ??
+                            false;
+                        if (!confirmed) {
+                          return;
+                        }
+                        if (peerFavorite != null) {
+                          await ref.redux(favoritesProvider).dispatchAsync(RemoveFavoriteAction(deviceFingerprint: peerFingerprint));
+                        }
+                        await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(null);
+                        updateSyncBackgroundService(ref);
+                      },
+                      child: Text(s.unpair),
                     ),
                   ],
                 ),
-              if (peerFavorite != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    '${s.peer}: ${peerFavorite.alias} (${peerFavorite.ip}:${peerFavorite.port})',
+                const SizedBox(height: 4),
+                Text(
+                  peerOnline ? s.online : s.offline,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                if (peerFavorite != null)
+                  Text(
+                    '${s.peer}: ${peerFavorite.ip}:${peerFavorite.port}',
                     style: const TextStyle(fontSize: 12),
                   ),
-                ),
+              ],
             ],
           ),
           _Section(
