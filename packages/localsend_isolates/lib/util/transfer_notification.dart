@@ -86,7 +86,10 @@ class TransferNotification {
     if (_transfers.isEmpty) {
       final keepAlive = _keepAlive;
       if (keepAlive != null) {
-        ForegroundService.updateNotification(title: keepAlive.title, text: keepAlive.text);
+        ForegroundService.updateNotification(
+          title: keepAlive.title,
+          text: keepAlive.text,
+        );
       } else {
         ForegroundService.stop();
       }

@@ -26,7 +26,9 @@ Device? resolveSyncPeer(Ref ref) {
     return discovered;
   }
 
-  final favorite = ref.read(favoritesProvider).firstWhereOrNull((e) => e.fingerprint == fingerprint);
+  final favorite = ref
+      .read(favoritesProvider)
+      .firstWhereOrNull((e) => e.fingerprint == fingerprint);
   if (favorite == null) {
     return null;
   }
