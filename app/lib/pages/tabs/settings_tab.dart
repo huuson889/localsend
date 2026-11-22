@@ -404,6 +404,8 @@ class SettingsTab extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      _CurrentDeviceNameText(isVi: isVi),
+                      const SizedBox(height: 4),
                       TextButton(
                         onPressed: () async {
                           final systemName = await getDeviceName();
@@ -633,6 +635,38 @@ class SettingsTab extends StatelessWidget {
             ),
             const SizedBox(height: 80),
           ],
+        );
+      },
+    );
+  }
+}
+
+/// Shows the device name the "use system name" alias option would apply,
+/// so the user can see beforehand what the default alias resolves to
+/// (e.g. the phone's device name), instead of guessing.
+class _CurrentDeviceNameText extends StatefulWidget {
+  final bool isVi;
+
+  const _CurrentDeviceNameText({required this.isVi});
+
+  @override
+  State<_CurrentDeviceNameText> createState() => _CurrentDeviceNameTextState();
+}
+
+class _CurrentDeviceNameTextState extends State<_CurrentDeviceNameText> {
+  late final Future<String?> _deviceName = getDeviceName();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: _deviceName,
+      builder: (context, snapshot) {
+        final name = snapshot.data?.trim();
+        final label = widget.isVi ? 'Tên máy hiện tại' : 'Current device name';
+        return Text(
+          name == null || name.isEmpty ? '$label: —' : '$label: $name',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 12),
         );
       },
     );

@@ -116,8 +116,38 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
 
   DateTime? _lastSendAt;
 
+  /// Transient send failures are retried silently with a growing delay;
+  /// the user only gets one failure toast per failure streak, not one
+  /// per poll.
+  int _consecutiveSendFailures = 0;
+  DateTime? _nextRetryAt;
+  bool _failureToastShown = false;
+
   @override
   ClipboardSyncState init() => ClipboardSyncState.initial;
+
+  bool _retryPending(DateTime now) => _nextRetryAt != null && now.isBefore(_nextRetryAt!);
+
+  void _noteSendFailure() {
+    _consecutiveSendFailures++;
+    final delaySeconds = _consecutiveSendFailures <= 1 ? 5 : _consecutiveSendFailures == 2 ? 15 : 30;
+    _nextRetryAt = DateTime.now().add(Duration(seconds: delaySeconds));
+  }
+
+  /// Whether a failure toast should be shown now (once per streak).
+  bool _claimFailureToast() {
+    if (_failureToastShown) {
+      return false;
+    }
+    _failureToastShown = true;
+    return true;
+  }
+
+  void _noteSendSuccess() {
+    _consecutiveSendFailures = 0;
+    _nextRetryAt = null;
+    _failureToastShown = false;
+  }
 
   void start() {
     if (_timer != null) {
@@ -289,7 +319,12 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
 
     final peer = resolveSyncPeer(ref);
     if (peer == null) {
-      // Peer offline. Keep _lastKnownText stale so we retry when it appears.
+      // Peer not in the discovery list right now: wait silently. The
+      // content stays pending and is sent when the peer appears again.
+      return;
+    }
+    if (_retryPending(now)) {
+      // A recent send failed; retry silently after the backoff delay.
       return;
     }
 
@@ -321,11 +356,15 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
             vi: 'Đang chờ ${peer.alias} bật đồng bộ clipboard',
           );
         } else {
+          _noteSendFailure();
           state = state.copyWith(lastError: 'Clipboard text was not accepted by ${peer.alias}');
-          showSyncToastLocalized(en: 'Clipboard text sync failed', vi: 'Đồng bộ clipboard chữ thất bại');
+          if (_claimFailureToast()) {
+            showSyncToastLocalized(en: 'Clipboard text sync failed', vi: 'Đồng bộ clipboard chữ thất bại');
+          }
         }
         return;
       }
+      _noteSendSuccess();
       _lastSyncedText = current;
       _lastKnownText = current;
       _lastSendAt = now;
@@ -335,8 +374,11 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
       _logger.info('Clipboard synced to ${peer.alias} (${bytes.length} bytes)');
     } catch (e) {
       _logger.warning('Clipboard sync send failed: $e');
+      _noteSendFailure();
       state = state.copyWith(lastError: e.toString());
-      showSyncToastLocalized(en: 'Clipboard text sync failed', vi: 'Đồng bộ clipboard chữ thất bại');
+      if (_claimFailureToast()) {
+        showSyncToastLocalized(en: 'Clipboard text sync failed', vi: 'Đồng bộ clipboard chữ thất bại');
+      }
     } finally {
       _sending = false;
     }
@@ -385,7 +427,12 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
 
     final peer = resolveSyncPeer(ref);
     if (peer == null) {
-      // Peer offline. Keep the signature stale so we retry when it appears.
+      // Peer not in the discovery list right now: wait silently. The
+      // image stays pending and is sent when the peer appears again.
+      return;
+    }
+    if (_retryPending(now)) {
+      // A recent send failed; retry silently after the backoff delay.
       return;
     }
 
@@ -429,11 +476,15 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
             vi: 'Đang chờ ${peer.alias} bật đồng bộ clipboard',
           );
         } else {
+          _noteSendFailure();
           state = state.copyWith(lastError: 'Clipboard image was not accepted by ${peer.alias}');
-          showSyncToastLocalized(en: 'Clipboard image sync failed', vi: 'Đồng bộ clipboard hình ảnh thất bại');
+          if (_claimFailureToast()) {
+            showSyncToastLocalized(en: 'Clipboard image sync failed', vi: 'Đồng bộ clipboard hình ảnh thất bại');
+          }
         }
         return;
       }
+      _noteSendSuccess();
       _lastSyncedImageSig = signature;
       _lastKnownImageSig = signature;
       _lastSendAt = now;
@@ -443,8 +494,11 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
       _logger.info('Clipboard image synced to ${peer.alias} (${imageBytes.length} bytes)');
     } catch (e) {
       _logger.warning('Clipboard image sync send failed: $e');
+      _noteSendFailure();
       state = state.copyWith(lastError: e.toString());
-      showSyncToastLocalized(en: 'Clipboard image sync failed', vi: 'Đồng bộ clipboard hình ảnh thất bại');
+      if (_claimFailureToast()) {
+        showSyncToastLocalized(en: 'Clipboard image sync failed', vi: 'Đồng bộ clipboard hình ảnh thất bại');
+      }
     } finally {
       _sending = false;
     }

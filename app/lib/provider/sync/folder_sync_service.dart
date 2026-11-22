@@ -151,6 +151,36 @@ class FolderSyncService extends Notifier<FolderSyncState> {
   /// (or the manual sync button) retries.
   String? _rejectedChangeSignature;
 
+  /// Transient send failures are retried silently with a growing delay;
+  /// the user only gets one failure toast per failure streak, not one
+  /// per poll.
+  int _consecutiveSendFailures = 0;
+  DateTime? _nextRetryAt;
+  bool _failureToastShown = false;
+
+  bool _retryPending(DateTime now) => _nextRetryAt != null && now.isBefore(_nextRetryAt!);
+
+  void _noteSendFailure() {
+    _consecutiveSendFailures++;
+    final delaySeconds = _consecutiveSendFailures <= 1 ? 5 : _consecutiveSendFailures == 2 ? 15 : 30;
+    _nextRetryAt = DateTime.now().add(Duration(seconds: delaySeconds));
+  }
+
+  /// Whether a failure toast should be shown now (once per streak).
+  bool _claimFailureToast() {
+    if (_failureToastShown) {
+      return false;
+    }
+    _failureToastShown = true;
+    return true;
+  }
+
+  void _noteSendSuccess() {
+    _consecutiveSendFailures = 0;
+    _nextRetryAt = null;
+    _failureToastShown = false;
+  }
+
   @override
   FolderSyncState init() => FolderSyncState.initial;
 
@@ -424,6 +454,10 @@ class FolderSyncService extends Notifier<FolderSyncState> {
     if (changeSignature == _rejectedChangeSignature) {
       return;
     }
+    if (_retryPending(DateTime.now())) {
+      // A recent send failed; retry silently after the backoff delay.
+      return;
+    }
 
     final batch = changed.take(_maxBatchSize).toList();
     _sending = true;
@@ -497,12 +531,17 @@ class FolderSyncService extends Notifier<FolderSyncState> {
             vi: 'Đang chờ ${peer.alias} bật đồng bộ thư mục',
           );
         } else {
-          // Transient failure: keep the baseline stale so the next poll retries.
+          // Transient failure: keep the baseline stale so a later poll
+          // retries, silently and with backoff.
+          _noteSendFailure();
           state = state.copyWith(lastError: 'Folder files were not accepted by ${peer.alias}');
-          showSyncToastLocalized(en: 'Folder sync failed', vi: 'Đồng bộ thư mục thất bại');
+          if (_claimFailureToast()) {
+            showSyncToastLocalized(en: 'Folder sync failed', vi: 'Đồng bộ thư mục thất bại');
+          }
         }
         return;
       }
+      _noteSendSuccess();
       _rejectedChangeSignature = null;
       for (final rel in batch) {
         _lastSynced[rel] = current[rel]!;
@@ -523,8 +562,11 @@ class FolderSyncService extends Notifier<FolderSyncState> {
       _logger.info('Folder sync: sent ${batch.length} file(s) to ${peer.alias}');
     } catch (e) {
       _logger.warning('Folder sync send failed: $e');
+      _noteSendFailure();
       state = state.copyWith(lastError: e.toString());
-      showSyncToastLocalized(en: 'Folder sync failed', vi: 'Đồng bộ thư mục thất bại');
+      if (_claimFailureToast()) {
+        showSyncToastLocalized(en: 'Folder sync failed', vi: 'Đồng bộ thư mục thất bại');
+      }
     } finally {
       _sending = false;
     }

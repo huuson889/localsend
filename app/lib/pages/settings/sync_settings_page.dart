@@ -56,6 +56,7 @@ class _Strings {
   final String waitingPeer;
   final String activeTwoWay;
   final String featureOff;
+  final String peerOffline;
 
   const _Strings({
     required this.title,
@@ -94,6 +95,7 @@ class _Strings {
     required this.waitingPeer,
     required this.activeTwoWay,
     required this.featureOff,
+    required this.peerOffline,
   });
 
   static const en = _Strings(
@@ -104,7 +106,7 @@ class _Strings {
     pairedDevice: '1. Paired device',
     noFavorites: 'No favorites yet. Tap the heart on a device in the Send tab to favorite it (it becomes the sync peer automatically), then come back here.',
     online: 'Online',
-    offline: 'Offline (will retry)',
+    offline: 'Offline (waiting, not sending)',
     none: 'None',
     peer: 'Peer',
     clipboardSync: '2. Clipboard sync',
@@ -135,6 +137,7 @@ class _Strings {
     waitingPeer: 'Waiting for the other device (it must favorite this device and enable this feature too)',
     activeTwoWay: 'Active: both devices agreed',
     featureOff: 'Off',
+    peerOffline: 'Paired device is offline (not in the discovered list right now)',
   );
 
   static const vi = _Strings(
@@ -145,7 +148,7 @@ class _Strings {
     pairedDevice: '1. Thiết bị đã cặp',
     noFavorites: 'Chưa có thiết bị yêu thích. Bấm biểu tượng tim trên thẻ thiết bị ở thẻ Gửi để thêm (thiết bị sẽ tự thành cặp đồng bộ), rồi quay lại đây.',
     online: 'Trực tuyến',
-    offline: 'Ngoại tuyến (sẽ thử lại)',
+    offline: 'Ngoại tuyến (đang chờ, không gửi)',
     none: 'Không chọn',
     peer: 'Thiết bị cặp',
     clipboardSync: '2. Đồng bộ clipboard',
@@ -176,6 +179,7 @@ class _Strings {
     waitingPeer: 'Đang chờ máy kia (máy kia cũng phải bấm tim máy này và bật tính năng này)',
     activeTwoWay: 'Đang hoạt động: cả hai máy đã đồng ý',
     featureOff: 'Đang tắt',
+    peerOffline: 'Thiết bị cặp đang offline (hiện không có trên danh sách dò thấy)',
   );
 }
 
@@ -200,7 +204,7 @@ class SyncSettingsPage extends StatelessWidget {
 
     final peerFingerprint = sync.syncPeerFingerprint;
     final peerFavorite = peerFingerprint == null ? null : favorites.where((e) => e.fingerprint == peerFingerprint).firstOrNull;
-    final peerOnline = peerFingerprint != null && nearby.devices.containsKey(peerFingerprint);
+    final peerOnline = peerFingerprint != null && nearby.devices[peerFingerprint]?.ip != null;
 
     return Scaffold(
       appBar: AppBar(title: Text(s.title)),
@@ -306,6 +310,12 @@ class SyncSettingsPage extends StatelessWidget {
                 child: TextButton(
                   onPressed: sync.clipboardSyncActive
                       ? () async {
+                          if (!peerOnline) {
+                            // Only send while the peer is actually
+                            // discovered; never dial a stale address.
+                            if (context.mounted) context.showSnackBar(s.peerOffline);
+                            return;
+                          }
                           await ref.notifier(clipboardSyncProvider).syncNow();
                           if (context.mounted) context.showSnackBar(s.clipboardRequested);
                         }
@@ -391,6 +401,12 @@ class SyncSettingsPage extends StatelessWidget {
                 child: TextButton(
                   onPressed: sync.folderSyncActive
                       ? () async {
+                          if (!peerOnline) {
+                            // Only send while the peer is actually
+                            // discovered; never dial a stale address.
+                            if (context.mounted) context.showSnackBar(s.peerOffline);
+                            return;
+                          }
                           await ref.notifier(folderSyncProvider).syncNow();
                           if (context.mounted) context.showSnackBar(s.folderRequested);
                         }
