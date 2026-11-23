@@ -89,6 +89,33 @@ Future<void> writeClipboardImageAndroid(Uint8List bytes) async {
   await _methodChannel.invokeMethod<void>('writeClipboardImage', bytes);
 }
 
+/// Whether the app may read images from the media store (needed to watch
+/// for new screenshots for paired sync on Android).
+Future<bool> hasMediaImagesPermissionAndroid() async {
+  return await _methodChannel.invokeMethod<bool>('hasMediaImagesPermission') ?? false;
+}
+
+/// Requests the media-store image permission (Android 13+:
+/// READ_MEDIA_IMAGES, older: READ_EXTERNAL_STORAGE). Returns whether
+/// access is available afterwards (full or partial).
+Future<bool> requestMediaImagesPermissionAndroid() async {
+  return await _methodChannel.invokeMethod<bool>('requestMediaImagesPermission') ?? false;
+}
+
+/// ID of the newest screenshot in the media store, 0 when there is none,
+/// -1 without the photo permission. Used to baseline: screenshots that
+/// already exist when the feature is enabled are not sent.
+Future<int> getLatestScreenshotIdAndroid() async {
+  return await _methodChannel.invokeMethod<int>('getLatestScreenshotId') ?? -1;
+}
+
+/// The newest screenshot taken after [afterId] (exclusive), as a map with
+/// `status` (`ok`/`none`/`no_permission`) and, for `ok`, `id` and `bytes`.
+Future<Map<String, dynamic>?> getLatestScreenshotAndroid(int afterId) async {
+  final result = await _methodChannel.invokeMethod<Map>('getLatestScreenshot', {'afterId': afterId});
+  return result?.map((key, value) => MapEntry(key.toString(), value));
+}
+
 /// Debug description of the current Android clipboard content (item count,
 /// per-item URI scheme/MIME type, whether text is present). Used only for
 /// the "Clipboard now" diagnostic line in the paired-sync settings: it

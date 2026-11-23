@@ -65,6 +65,7 @@ const _syncPeerFingerprints = 'ls_sync_peer_fingerprints';
 const _clipboardSyncEnabled = 'ls_clipboard_sync_enabled';
 const _folderSyncEnabled = 'ls_folder_sync_enabled';
 const _syncFolderPath = 'ls_sync_folder_path';
+const _screenshotSyncEnabled = 'ls_screenshot_sync_enabled';
 const _syncClipboardConfirmedFingerprint = 'ls_sync_clipboard_confirmed_fingerprint'; // legacy single-peer key
 const _syncFolderConfirmedFingerprint = 'ls_sync_folder_confirmed_fingerprint'; // legacy single-peer key
 const _syncClipboardConfirmedFingerprints = 'ls_sync_clipboard_confirmed_fingerprints';
@@ -334,6 +335,14 @@ class PersistenceService {
 
   Future<void> setClipboardSyncEnabled(bool enabled) async {
     await _prefs.setBool(_clipboardSyncEnabled, enabled);
+  }
+
+  bool isScreenshotSyncEnabled() {
+    return _prefs.getBool(_screenshotSyncEnabled) ?? false;
+  }
+
+  Future<void> setScreenshotSyncEnabled(bool enabled) async {
+    await _prefs.setBool(_screenshotSyncEnabled, enabled);
   }
 
   bool isFolderSyncEnabled() {

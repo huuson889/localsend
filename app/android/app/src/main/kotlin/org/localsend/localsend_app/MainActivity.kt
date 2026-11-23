@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ContentResolver
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -14,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.provider.Settings
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
@@ -34,6 +36,10 @@ private const val REQUEST_CODE_PICK_DIRECTORY = 1
 private const val REQUEST_CODE_PICK_DIRECTORY_PATH = 2
 private const val REQUEST_CODE_PICK_FILE = 3
 private const val REQUEST_CODE_LOCAL_NETWORK = 4
+private const val REQUEST_CODE_MEDIA_IMAGES = 5
+private const val PERMISSION_READ_MEDIA_IMAGES = "android.permission.READ_MEDIA_IMAGES"
+private const val PERMISSION_READ_MEDIA_VISUAL_USER_SELECTED = "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+private const val PERMISSION_READ_EXTERNAL_STORAGE = "android.permission.READ_EXTERNAL_STORAGE"
 
 // Not available as a constant in compileSdk 36.
 private const val PERMISSION_ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
@@ -42,6 +48,7 @@ private const val API_LEVEL_ANDROID_17 = 37
 class MainActivity : FlutterActivity() {
     private var pendingResult: MethodChannel.Result? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private var pendingMediaPermissionResult: MethodChannel.Result? = null
 
     /// share_handler drops share intents arriving via onNewIntent while the Dart side
     /// is not subscribed to its media stream yet, which happens when this singleTask
@@ -141,6 +148,21 @@ class MainActivity : FlutterActivity() {
 
                 "getClipboardImageDebug" -> handleGetClipboardImageDebug(result)
 
+                "hasMediaImagesPermission" -> result.success(hasMediaImagesPermission())
+
+                "requestMediaImagesPermission" -> {
+                    if (hasMediaImagesPermission()) {
+                        result.success(true)
+                    } else {
+                        pendingMediaPermissionResult = result
+                        requestPermissions(arrayOf(mediaImagesPermission()), REQUEST_CODE_MEDIA_IMAGES)
+                    }
+                }
+
+                "getLatestScreenshotId" -> result.success(latestScreenshotId())
+
+                "getLatestScreenshot" -> handleGetLatestScreenshot(call, result)
+
                 "writeClipboardImage" -> handleWriteClipboardImage(call, result)
 
                 "requestLocalNetworkPermission" -> {
@@ -171,6 +193,102 @@ class MainActivity : FlutterActivity() {
             pendingPermissionResult?.success(grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)
             pendingPermissionResult = null
         }
+        if (requestCode == REQUEST_CODE_MEDIA_IMAGES) {
+            // Re-check instead of trusting grantResults: on Android 14+ the
+            // user may grant partial photo access instead of full access.
+            pendingMediaPermissionResult?.success(hasMediaImagesPermission())
+            pendingMediaPermissionResult = null
+        }
+    }
+
+    /// The runtime permission needed to watch for new screenshots in the
+    /// media store (used by paired-sync's auto-send-screenshots feature).
+    private fun mediaImagesPermission(): String {
+        return if (Build.VERSION.SDK_INT >= 33) PERMISSION_READ_MEDIA_IMAGES else PERMISSION_READ_EXTERNAL_STORAGE
+    }
+
+    private fun hasMediaImagesPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= 33) {
+            checkSelfPermission(PERMISSION_READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(PERMISSION_READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+        } else {
+            checkSelfPermission(PERMISSION_READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private data class ScreenshotInfo(val id: Long, val size: Long, val uri: Uri)
+
+    /// The newest image in a "Screenshots" folder of the media store, or
+    /// null when there is none (or no photo permission).
+    private fun latestScreenshot(): ScreenshotInfo? {
+        if (!hasMediaImagesPermission()) {
+            return null
+        }
+        val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val projection = mutableListOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.SIZE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            projection.add(MediaStore.Images.Media.RELATIVE_PATH)
+        } else {
+            @Suppress("DEPRECATION")
+            projection.add(MediaStore.Images.Media.DATA)
+        }
+        try {
+            contentResolver.query(collection, projection.toTypedArray(), null, null, "${MediaStore.Images.Media.DATE_ADDED} DESC")?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val sizeIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+                val pathIndex = cursor.getColumnIndexOrThrow(projection[2])
+                var scanned = 0
+                while (cursor.moveToNext() && scanned < 200) {
+                    scanned++
+                    val path = cursor.getString(pathIndex) ?: continue
+                    if (!path.contains("screenshots", ignoreCase = true)) {
+                        continue
+                    }
+                    val id = cursor.getLong(idIndex)
+                    return ScreenshotInfo(id, cursor.getLong(sizeIndex), ContentUris.withAppendedId(collection, id))
+                }
+            }
+        } catch (e: Exception) {
+            // No access (permission revoked mid-flight, OEM quirks): treat
+            // as "no screenshot" instead of crashing the poller.
+            return null
+        }
+        return null
+    }
+
+    /// ID of the newest screenshot, 0 when there is none, -1 without the
+    /// photo permission. Used to baseline (existing screenshots are not
+    /// sent when the feature is switched on).
+    private fun latestScreenshotId(): Long {
+        if (!hasMediaImagesPermission()) {
+            return -1
+        }
+        return latestScreenshot()?.id ?: 0
+    }
+
+    /// Returns the newest screenshot taken after [afterId] (exclusive),
+    /// with its bytes, so the Dart side can sync it like a clipboard image.
+    private fun handleGetLatestScreenshot(call: MethodCall, result: MethodChannel.Result) {
+        if (!hasMediaImagesPermission()) {
+            result.success(mapOf("status" to "no_permission"))
+            return
+        }
+        val afterId = (call.argument<Number>("afterId"))?.toLong() ?: 0L
+        val info = latestScreenshot()
+        if (info == null || info.id <= afterId) {
+            result.success(mapOf("status" to "none"))
+            return
+        }
+        val bytes = try {
+            contentResolver.openInputStream(info.uri)?.use { it.readBytes() }
+        } catch (e: Exception) {
+            null
+        }
+        if (bytes == null || bytes.isEmpty()) {
+            result.success(mapOf("status" to "none"))
+            return
+        }
+        result.success(mapOf("status" to "ok", "id" to info.id, "size" to info.size, "bytes" to bytes))
     }
 
     /// Absolute path of the shared "Download" directory (usually /storage/emulated/0/Download).

@@ -23,6 +23,7 @@ class SyncSettingsService extends PureNotifier<SyncSettings> {
       clipboardSyncEnabled: _persistence.isClipboardSyncEnabled(),
       folderSyncEnabled: _persistence.isFolderSyncEnabled(),
       syncFolderPath: _persistence.getSyncFolderPath(),
+      screenshotSyncEnabled: _persistence.isScreenshotSyncEnabled(),
       clipboardConfirmedPeerFingerprints: _persistence.getSyncClipboardConfirmedFingerprints().toSet(),
       folderConfirmedPeerFingerprints: _persistence.getSyncFolderConfirmedFingerprints().toSet(),
     );
@@ -62,6 +63,11 @@ class SyncSettingsService extends PureNotifier<SyncSettings> {
   Future<void> setClipboardSyncEnabled(bool enabled) async {
     await _persistence.setClipboardSyncEnabled(enabled);
     state = state.copyWith(clipboardSyncEnabled: enabled);
+  }
+
+  Future<void> setScreenshotSyncEnabled(bool enabled) async {
+    await _persistence.setScreenshotSyncEnabled(enabled);
+    state = state.copyWith(screenshotSyncEnabled: enabled);
   }
 
   Future<void> setFolderSyncEnabled(bool enabled) async {

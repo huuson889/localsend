@@ -148,6 +148,17 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
   /// debug channel call happens once per change, not every poll.
   bool _noImageDiagnosticFetched = false;
 
+  /// Media-store ID of the newest screenshot already accounted for
+  /// (Android screenshot sync). -1 = not baselined yet: the next poll
+  /// records the current newest screenshot without sending it.
+  int _lastScreenshotId = -1;
+
+  /// A screenshot that was fetched but not yet delivered to every online
+  /// peer (kept in memory so it is not re-read from the media store on
+  /// every poll).
+  int _pendingScreenshotId = -1;
+  Uint8List? _pendingScreenshotBytes;
+
   void _setDiagnostic(String diagnostic) {
     if (state.clipboardDiagnostic != diagnostic) {
       state = state.copyWith(clipboardDiagnostic: diagnostic);
@@ -265,6 +276,25 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     }
   }
 
+  /// Records the newest existing screenshot as the baseline, so enabling
+  /// screenshot sync never sends screenshots taken before setup. Called
+  /// when the feature is switched on.
+  Future<void> primeScreenshotBaseline() async {
+    if (!checkPlatform([TargetPlatform.android])) {
+      return;
+    }
+    try {
+      final id = await android_channel.getLatestScreenshotIdAndroid();
+      if (id >= 0) {
+        _lastScreenshotId = id;
+        _pendingScreenshotId = -1;
+        _pendingScreenshotBytes = null;
+      }
+    } catch (e) {
+      _logger.fine('Priming screenshot baseline failed: $e');
+    }
+  }
+
   /// Called by the receiver when clipboard text was applied from the peer,
   /// so the poller does not send it back.
   void markReceived(String text) {
@@ -323,7 +353,9 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
       // Android first: an image clip holds a content URI, and the text
       // reader below would surface that URI as pseudo-text, so checking
       // text first would never reach the image branch.
-      if (await _pollImage()) {
+      final imageHandled = await _pollImage();
+      await _pollScreenshot(settings);
+      if (imageHandled) {
         return;
       }
     }
@@ -503,12 +535,85 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
       return true;
     }
 
-    // Same fan-out as text: every discovered paired peer that has not
-    // received (or rejected) this image yet gets it; offline peers stay
-    // pending via their missing per-peer marker.
+    await _sendImageFanOut(bytes: bytes, signature: signature, isScreenshot: false);
+    return true;
+  }
+
+  /// Android screenshot watch: screenshots never enter the clipboard on
+  /// Android (they are saved to a Screenshots folder instead), so when
+  /// the user opted in, new screenshots are picked up from the media
+  /// store and sent exactly like clipboard images. Baseline semantics
+  /// match the rest of paired sync: screenshots that already exist when
+  /// the feature is enabled (or the app starts) are not sent.
+  Future<void> _pollScreenshot(SyncSettings settings) async {
+    if (!settings.screenshotSyncEnabled || _sending) {
+      return;
+    }
+    try {
+      if (_lastScreenshotId < 0) {
+        // First poll after start: baseline only, send nothing.
+        final id = await android_channel.getLatestScreenshotIdAndroid();
+        if (id >= 0) {
+          _lastScreenshotId = id;
+        }
+        return;
+      }
+
+      int screenshotId;
+      Uint8List bytes;
+      final pendingBytes = _pendingScreenshotBytes;
+      if (pendingBytes != null) {
+        screenshotId = _pendingScreenshotId;
+        bytes = pendingBytes;
+      } else {
+        final result = await android_channel.getLatestScreenshotAndroid(_lastScreenshotId);
+        if (result == null) {
+          return;
+        }
+        final status = result['status'] as String?;
+        if (status == 'no_permission') {
+          _setDiagnostic('screenshot: no photo permission');
+          return;
+        }
+        if (status != 'ok') {
+          return;
+        }
+        screenshotId = (result['id'] as num?)?.toInt() ?? -1;
+        final data = result['bytes'];
+        if (screenshotId < 0 || data is! Uint8List || data.isEmpty) {
+          return;
+        }
+        bytes = data;
+        if (bytes.length > maxClipboardImageBytes) {
+          _logger.info('Screenshot too large (${bytes.length} bytes), skipped');
+          _lastScreenshotId = screenshotId;
+          return;
+        }
+        _pendingScreenshotId = screenshotId;
+        _pendingScreenshotBytes = bytes;
+      }
+
+      final resolved = await _sendImageFanOut(bytes: bytes, signature: _imageSignature(bytes), isScreenshot: true);
+      if (resolved) {
+        _lastScreenshotId = screenshotId;
+        _pendingScreenshotId = -1;
+        _pendingScreenshotBytes = null;
+      }
+    } catch (e) {
+      _logger.fine('Screenshot poll failed: $e');
+    }
+  }
+
+  /// Sends an image (clipboard image or Android screenshot) to every
+  /// discovered paired peer that has not received (or rejected) it yet.
+  /// Returns true when every online peer is resolved (sent or rejected);
+  /// false when someone is still pending (offline or transient failure),
+  /// so the caller keeps the image for a later retry. Offline peers stay
+  /// pending via their missing per-peer marker.
+  Future<bool> _sendImageFanOut({required Uint8List bytes, required String signature, required bool isScreenshot}) async {
     final peers = resolveSyncPeers(ref);
     if (peers.isEmpty) {
-      return true;
+      return false;
     }
     final now = DateTime.now();
     final pending = peers
@@ -525,7 +630,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     if (_lastSendAt != null && now.difference(_lastSendAt!) < _minSendInterval) {
       // Rate limited. The per-peer markers stay unset, so the pending
       // peers are retried on a later tick.
-      return true;
+      return false;
     }
 
     // On Windows the clipboard image is a BMP which is large and
@@ -543,6 +648,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
 
     _sending = true;
     var anySent = false;
+    var allResolved = true;
     try {
       for (final peer in pending) {
         try {
@@ -557,7 +663,10 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
             lastModified: null,
             lastAccessed: null,
           );
-          showSyncToastLocalized(en: 'Sending clipboard image to ${peer.alias}…', vi: 'Đang gửi clipboard hình ảnh tới ${peer.alias}…');
+          showSyncToastLocalized(
+            en: isScreenshot ? 'Sending screenshot to ${peer.alias}…' : 'Sending clipboard image to ${peer.alias}…',
+            vi: isScreenshot ? 'Đang gửi ảnh chụp màn hình tới ${peer.alias}…' : 'Đang gửi clipboard hình ảnh tới ${peer.alias}…',
+          );
           final outcome = await _sendInBackground(peer: peer, files: [file]);
           if (outcome == _SendOutcome.rejected) {
             // Same anti-spam rule as for text, but per peer: this image is
@@ -570,6 +679,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
               vi: 'Đang chờ ${peer.alias} bật đồng bộ clipboard',
             );
           } else if (outcome == _SendOutcome.failed) {
+            allResolved = false;
             _noteSendFailure(peer.fingerprint);
             state = state.copyWith(lastError: 'Clipboard image was not accepted by ${peer.alias}');
             if (_claimFailureToast(peer.fingerprint)) {
@@ -582,11 +692,15 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
             anySent = true;
             await ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(peer.fingerprint, true);
             state = state.copyWith(lastSentAt: DateTime.now(), clearError: true);
-            showSyncToastLocalized(en: 'Clipboard image sent to ${peer.alias}', vi: 'Đã gửi clipboard hình ảnh tới ${peer.alias}');
-            _logger.info('Clipboard image synced to ${peer.alias} (${imageBytes.length} bytes)');
+            showSyncToastLocalized(
+              en: isScreenshot ? 'Screenshot sent to ${peer.alias}' : 'Clipboard image sent to ${peer.alias}',
+              vi: isScreenshot ? 'Đã gửi ảnh chụp màn hình tới ${peer.alias}' : 'Đã gửi clipboard hình ảnh tới ${peer.alias}',
+            );
+            _logger.info('Image synced to ${peer.alias} (${imageBytes.length} bytes)');
           }
         } catch (e) {
-          _logger.warning('Clipboard image sync send to ${peer.alias} failed: $e');
+          _logger.warning('Image sync send to ${peer.alias} failed: $e');
+          allResolved = false;
           _noteSendFailure(peer.fingerprint);
           state = state.copyWith(lastError: e.toString());
           if (_claimFailureToast(peer.fingerprint)) {
@@ -600,7 +714,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     if (anySent) {
       _lastSendAt = DateTime.now();
     }
-    return true;
+    return allResolved;
   }
 
   /// Cheap fingerprint of clipboard image bytes: the length plus an FNV-1a

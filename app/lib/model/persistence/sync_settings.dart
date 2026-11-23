@@ -25,6 +25,12 @@ class SyncSettings {
   /// Local folder that is kept in sync with the paired devices.
   final String? syncFolderPath;
 
+  /// Android only: automatically send new screenshots to the paired
+  /// devices (screenshots do not land in the clipboard on Android, so
+  /// they are picked up from the media store instead). Requires the
+  /// photo-access permission. Off by default.
+  final bool screenshotSyncEnabled;
+
   /// Peers that have proven (by accepting a sync from this device, or by
   /// sending one this device accepted) that they also paired this device
   /// and enabled clipboard sync. Until a peer is in this set, the UI shows
@@ -40,6 +46,7 @@ class SyncSettings {
     required this.clipboardSyncEnabled,
     required this.folderSyncEnabled,
     required this.syncFolderPath,
+    required this.screenshotSyncEnabled,
     required this.clipboardConfirmedPeerFingerprints,
     required this.folderConfirmedPeerFingerprints,
   });
@@ -49,6 +56,7 @@ class SyncSettings {
     clipboardSyncEnabled: false,
     folderSyncEnabled: false,
     syncFolderPath: null,
+    screenshotSyncEnabled: false,
     clipboardConfirmedPeerFingerprints: {},
     folderConfirmedPeerFingerprints: {},
   );
@@ -62,6 +70,7 @@ class SyncSettings {
     bool? clipboardSyncEnabled,
     bool? folderSyncEnabled,
     Object? syncFolderPath = _unset,
+    bool? screenshotSyncEnabled,
     Set<String>? clipboardConfirmedPeerFingerprints,
     Set<String>? folderConfirmedPeerFingerprints,
   }) {
@@ -70,6 +79,7 @@ class SyncSettings {
       clipboardSyncEnabled: clipboardSyncEnabled ?? this.clipboardSyncEnabled,
       folderSyncEnabled: folderSyncEnabled ?? this.folderSyncEnabled,
       syncFolderPath: syncFolderPath == _unset ? this.syncFolderPath : syncFolderPath as String?,
+      screenshotSyncEnabled: screenshotSyncEnabled ?? this.screenshotSyncEnabled,
       clipboardConfirmedPeerFingerprints: clipboardConfirmedPeerFingerprints ?? this.clipboardConfirmedPeerFingerprints,
       folderConfirmedPeerFingerprints: folderConfirmedPeerFingerprints ?? this.folderConfirmedPeerFingerprints,
     );

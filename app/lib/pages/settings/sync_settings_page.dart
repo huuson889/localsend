@@ -8,6 +8,7 @@ import 'package:localsend_app/provider/sync/background_sync.dart';
 import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
 import 'package:localsend_app/provider/sync/folder_sync_service.dart';
 import 'package:localsend_app/provider/sync_settings_provider.dart';
+import 'package:localsend_app/util/native/channel/android_channel.dart' as android_channel;
 import 'package:localsend_app/util/native/open_folder.dart';
 import 'package:localsend_app/util/native/pick_directory_path.dart';
 import 'package:localsend_app/util/native/platform_check.dart';
@@ -42,6 +43,9 @@ class _Strings {
   final String clipboardSync;
   final String autoClipboard;
   final String clipboardNote;
+  final String screenshotSync;
+  final String screenshotNote;
+  final String screenshotPermissionDenied;
   final String autoSync;
   final String running;
   final String stopped;
@@ -91,6 +95,9 @@ class _Strings {
     required this.clipboardSync,
     required this.autoClipboard,
     required this.clipboardNote,
+    required this.screenshotSync,
+    required this.screenshotNote,
+    required this.screenshotPermissionDenied,
     required this.autoSync,
     required this.running,
     required this.stopped,
@@ -142,6 +149,9 @@ class _Strings {
     clipboardSync: '2. Clipboard sync',
     autoClipboard: 'Auto-sync clipboard on copy',
     clipboardNote: 'Copy and it sends automatically. On Android: copy, then open LocalSend once.',
+    screenshotSync: 'Auto-send screenshots (Android)',
+    screenshotNote: 'Screenshots do not enter the Android clipboard, so new screenshots are picked up from the photo library instead. Needs photo access permission.',
+    screenshotPermissionDenied: 'Photo access permission is needed to auto-send screenshots',
     autoSync: 'Auto-sync',
     running: 'running',
     stopped: 'stopped',
@@ -193,6 +203,9 @@ class _Strings {
     clipboardSync: '2. Đồng bộ clipboard',
     autoClipboard: 'Tự động đồng bộ clipboard khi copy',
     clipboardNote: 'Copy là tự gửi. Trên Android: copy xong mở LocalSend một lần.',
+    screenshotSync: 'Tự động gửi ảnh chụp màn hình (Android)',
+    screenshotNote: 'Ảnh chụp màn hình không vào clipboard Android nên app lấy từ thư viện ảnh. Cần quyền truy cập ảnh.',
+    screenshotPermissionDenied: 'Cần quyền truy cập ảnh để tự động gửi ảnh chụp màn hình',
     autoSync: 'Tự động đồng bộ',
     running: 'đang chạy',
     stopped: 'đã dừng',
@@ -427,6 +440,31 @@ class SyncSettingsPage extends StatelessWidget {
                 s.clipboardNote,
                 style: const TextStyle(fontSize: 12),
               ),
+              if (checkPlatform([TargetPlatform.android])) ...[
+                const SizedBox(height: 8),
+                _ToggleRow(
+                  label: s.screenshotSync,
+                  value: sync.screenshotSyncEnabled,
+                  onChanged: !sync.hasSyncPeer
+                      ? null
+                      : (b) async {
+                          await ref.notifier(syncSettingsProvider).setScreenshotSyncEnabled(b);
+                          if (b) {
+                            final granted = await android_channel.requestMediaImagesPermissionAndroid();
+                            if (!granted) {
+                              if (context.mounted) context.showSnackBar(s.screenshotPermissionDenied);
+                            } else {
+                              // Baseline: existing screenshots are not sent.
+                              ref.notifier(clipboardSyncProvider).primeScreenshotBaseline(); // ignore: unawaited_futures
+                            }
+                          }
+                        },
+                ),
+                Text(
+                  s.screenshotNote,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
               const SizedBox(height: 8),
               Text(
                 '${s.autoSync}: ${clipboardState.running ? s.running : s.stopped}  •  ${s.lastCheck}: ${clipboardState.lastPollAt?.toLocal().toString() ?? '—'}',
