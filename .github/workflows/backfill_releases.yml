@@ -52,29 +52,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: dl/exe
 
-      - name: Create or update prerelease
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ matrix.version }}-paired-sync
-          name: LocalSend Paired Sync v${{ matrix.version }}
-          target_commitish: ${{ matrix.target }}
-          prerelease: true
-          body: |
-            Unofficial fork build of LocalSend with **paired sync** (test builds: Android APK is a debug build, Windows installer is unsigned).
-
-            ### Highlights
-            - Paired sync between trusted devices: pair with the heart button + 6-digit PIN on both devices
-            - Sync with **multiple devices** — each pair syncs independently, content is never forwarded between pairs
-            - Auto **clipboard sync** (text up to 16 KB, images up to 8 MB) both ways
-            - Auto **shared folder sync** both ways (new/changed files; deletions are not synced)
-            - Sync only while the paired device is discovered; offline peers are waited for silently
-
-            ### Downloads
-            - Android: `LocalSend-${{ matrix.version }}-debug-arm64.apk` (arm64, debug)
-            - Windows: `LocalSend-${{ matrix.version }}-windows-x64-unsigned.exe` (unsigned — Windows SmartScreen may warn)
-
-            Per-version details are in the pull request / commit history of this fork.
-          files: |
-            dl/apk/*.apk
-            dl/exe/*.exe
-          fail_on_unmatched_files: true
+      # The releases themselves were created once by the repo owner; this
+      # job only uploads the built files into them.
+      - name: Upload assets to prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "v${{ matrix.version }}-paired-sync" dl/apk/*.apk dl/exe/*.exe --clobber
