@@ -89,6 +89,15 @@ Future<void> writeClipboardImageAndroid(Uint8List bytes) async {
   await _methodChannel.invokeMethod<void>('writeClipboardImage', bytes);
 }
 
+/// Debug description of the current Android clipboard content (item count,
+/// per-item URI scheme/MIME type, whether text is present). Used only for
+/// the "Clipboard now" diagnostic line in the paired-sync settings: it
+/// shows *why* no image was detected (empty clip, text-only clip, image
+/// URI from an unexpected provider, ...).
+Future<String?> getClipboardImageDebugAndroid() async {
+  return await _methodChannel.invokeMethod<String>('getClipboardImageDebug');
+}
+
 Future<List<FileInfo>?> pickFilesAndroid() async {
   final result = await _methodChannel.invokeMethod<List>('pickFiles');
   if (result == null) {

@@ -40,12 +40,18 @@ class ClipboardSyncState {
   final DateTime? lastReceivedAt;
   final String? lastError;
 
+  /// What the poller currently sees on the clipboard, e.g.
+  /// `image 812 KB`, `text 42 chars`, `no image detected (items=1: ...)`.
+  /// Shown in the paired-sync settings to diagnose sync issues.
+  final String? clipboardDiagnostic;
+
   const ClipboardSyncState({
     required this.running,
     required this.lastPollAt,
     required this.lastSentAt,
     required this.lastReceivedAt,
     required this.lastError,
+    required this.clipboardDiagnostic,
   });
 
   static const initial = ClipboardSyncState(
@@ -54,6 +60,7 @@ class ClipboardSyncState {
     lastSentAt: null,
     lastReceivedAt: null,
     lastError: null,
+    clipboardDiagnostic: null,
   );
 
   ClipboardSyncState copyWith({
@@ -63,6 +70,7 @@ class ClipboardSyncState {
     DateTime? lastReceivedAt,
     String? lastError,
     bool clearError = false,
+    String? clipboardDiagnostic,
   }) {
     return ClipboardSyncState(
       running: running ?? this.running,
@@ -70,6 +78,7 @@ class ClipboardSyncState {
       lastSentAt: lastSentAt ?? this.lastSentAt,
       lastReceivedAt: lastReceivedAt ?? this.lastReceivedAt,
       lastError: clearError ? null : (lastError ?? this.lastError),
+      clipboardDiagnostic: clipboardDiagnostic ?? this.clipboardDiagnostic,
     );
   }
 }
@@ -133,6 +142,17 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
   final Map<String, String> _imageRejectedByPeer = {};
 
   DateTime? _lastSendAt;
+
+  /// Whether the current "no image" diagnostic (incl. the native debug
+  /// string) has already been fetched for this clipboard content, so the
+  /// debug channel call happens once per change, not every poll.
+  bool _noImageDiagnosticFetched = false;
+
+  void _setDiagnostic(String diagnostic) {
+    if (state.clipboardDiagnostic != diagnostic) {
+      state = state.copyWith(clipboardDiagnostic: diagnostic);
+    }
+  }
 
   /// Transient send failures are retried silently with a growing delay;
   /// the user only gets one failure toast per failure streak and peer,
@@ -330,6 +350,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
       // Never sync it as text; the image branch above handles the clip.
       return;
     }
+    _setDiagnostic('text ${current.length} chars');
     if (current == _suppressedText) {
       // Received from a peer (or primed at setup): never echo it back and
       // never forward it to other peers. Pairs are independent.
@@ -447,11 +468,30 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     } catch (e) {
       // No image access (e.g. background on mobile). Retry next tick.
       _logger.fine('Clipboard image read failed: $e');
+      final message = e.toString();
+      _setDiagnostic('image read failed: ${message.length > 120 ? message.substring(0, 120) : message}');
       return false;
     }
     if (bytes == null || bytes.isEmpty) {
+      if (!_noImageDiagnosticFetched) {
+        _noImageDiagnosticFetched = true;
+        var diagnostic = 'no image detected';
+        if (checkPlatform([TargetPlatform.android])) {
+          try {
+            final debug = await android_channel.getClipboardImageDebugAndroid();
+            if (debug != null && debug.isNotEmpty) {
+              diagnostic = 'no image detected ($debug)';
+            }
+          } catch (e) {
+            // Diagnostic only: ignore failures.
+          }
+        }
+        _setDiagnostic(diagnostic);
+      }
       return false;
     }
+    _noImageDiagnosticFetched = false;
+    _setDiagnostic('image ${(bytes.length / 1024).round()} KB');
     final signature = _imageSignature(bytes);
     if (bytes.length > maxClipboardImageBytes) {
       _logger.info('Clipboard image too large (${bytes.length} bytes), skipped');

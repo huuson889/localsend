@@ -46,6 +46,7 @@ class _Strings {
   final String running;
   final String stopped;
   final String lastCheck;
+  final String clipboardNow;
   final String lastSent;
   final String lastReceived;
   final String error;
@@ -94,6 +95,7 @@ class _Strings {
     required this.running,
     required this.stopped,
     required this.lastCheck,
+    required this.clipboardNow,
     required this.lastSent,
     required this.lastReceived,
     required this.error,
@@ -144,6 +146,7 @@ class _Strings {
     running: 'running',
     stopped: 'stopped',
     lastCheck: 'Last check',
+    clipboardNow: 'Clipboard now',
     lastSent: 'Last sent',
     lastReceived: 'Last received',
     error: 'Error',
@@ -194,6 +197,7 @@ class _Strings {
     running: 'đang chạy',
     stopped: 'đã dừng',
     lastCheck: 'Lần kiểm tra cuối',
+    clipboardNow: 'Clipboard hiện tại',
     lastSent: 'Lần gửi cuối',
     lastReceived: 'Lần nhận cuối',
     error: 'Lỗi',
@@ -431,6 +435,11 @@ class SyncSettingsPage extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 '${s.lastSent}: ${clipboardState.lastSentAt?.toLocal().toString() ?? '—'}  •  ${s.lastReceived}: ${clipboardState.lastReceivedAt?.toLocal().toString() ?? '—'}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${s.clipboardNow}: ${clipboardState.clipboardDiagnostic ?? '—'}',
                 style: const TextStyle(fontSize: 12),
               ),
               const SizedBox(height: 8),

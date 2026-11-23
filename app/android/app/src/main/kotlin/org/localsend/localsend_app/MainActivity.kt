@@ -139,6 +139,8 @@ class MainActivity : FlutterActivity() {
 
                 "getClipboardImage" -> handleGetClipboardImage(result)
 
+                "getClipboardImageDebug" -> handleGetClipboardImageDebug(result)
+
                 "writeClipboardImage" -> handleWriteClipboardImage(call, result)
 
                 "requestLocalNetworkPermission" -> {
@@ -258,6 +260,38 @@ class MainActivity : FlutterActivity() {
             result.success(null)
         } catch (e: Exception) {
             result.error("CLIPBOARD_IMAGE_READ_FAILED", e.message ?: "Failed to read clipboard image", null)
+        }
+    }
+
+    /// Debug description of the current clipboard for the paired-sync
+    /// diagnostic line: how many items, and for each item whether it has
+    /// text and/or a URI (scheme + MIME type only, never the content).
+    private fun handleGetClipboardImageDebug(result: MethodChannel.Result) {
+        try {
+            val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = manager.primaryClip
+            if (clip == null) {
+                result.success("no clip")
+                return
+            }
+            val parts = mutableListOf<String>()
+            for (i in 0 until clip.itemCount) {
+                val item = clip.getItemAt(i)
+                val uri = item.uri
+                val mime = if (uri != null) {
+                    try {
+                        contentResolver.getType(uri) ?: "unknown"
+                    } catch (e: Exception) {
+                        "error"
+                    }
+                } else {
+                    "-"
+                }
+                parts.add("[$i] text=${item.text != null} uri=${uri?.scheme ?: "-"} mime=$mime")
+            }
+            result.success("items=${clip.itemCount}: " + parts.joinToString("; "))
+        } catch (e: Exception) {
+            result.success("debug failed: ${e.message}")
         }
     }
 
