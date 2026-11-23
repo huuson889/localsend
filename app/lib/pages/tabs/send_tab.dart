@@ -232,9 +232,9 @@ class SendTab extends StatelessWidget {
                               ? null
                               : () async {
                                   if (favoriteEntry != null) {
-                                    // Removing the current sync peer would
-                                    // silently break auto sync: ask first.
-                                    if (ref.read(syncSettingsProvider).syncPeerFingerprint == device.fingerprint) {
+                                    // Removing a sync peer would silently
+                                    // break auto sync with it: ask first.
+                                    if (ref.read(syncSettingsProvider).isSyncPeer(device.fingerprint)) {
                                       final isVi = Localizations.localeOf(context).languageCode == 'vi';
                                       final confirmed = await showDialog<bool>(
                                             context: context,
@@ -263,8 +263,8 @@ class SendTab extends StatelessWidget {
                                       }
                                     }
                                     await ref.redux(favoritesProvider).dispatchAsync(RemoveFavoriteAction(deviceFingerprint: device.fingerprint));
-                                    if (ref.read(syncSettingsProvider).syncPeerFingerprint == device.fingerprint) {
-                                      await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(null);
+                                    if (ref.read(syncSettingsProvider).isSyncPeer(device.fingerprint)) {
+                                      await ref.notifier(syncSettingsProvider).removeSyncPeerFingerprint(device.fingerprint);
                                       updateSyncBackgroundService(ref);
                                     }
                                   } else {

@@ -98,14 +98,14 @@ class ReceiveController {
     final senderFingerprint = event.certFingerprint ?? event.info.fingerprint;
     final senderAlias = server.ref.read(favoritesProvider).firstWhereOrNull((e) => e.fingerprint == senderFingerprint)?.alias ?? event.info.alias;
 
-    // Paired-device sync: only the selected trusted peer can trigger it,
+    // Paired-device sync: only a paired trusted peer can trigger it,
     // and only for features this device has enabled as well (consent is
-    // mutual: both devices must favorite each other and enable the same
-    // feature). Clipboard sync reuses the message transfer (fixed file name
-    // + preview); folder sync carries a marker file and saves straight into
-    // the shared folder. Sync attempts without local consent are declined
-    // silently further below instead of showing the receive dialog.
-    final isSyncPeer = syncSettings.syncPeerFingerprint != null && syncSettings.syncPeerFingerprint == senderFingerprint;
+    // mutual per pair: both devices must pair each other and enable the
+    // same feature). Clipboard sync reuses the message transfer (fixed file
+    // name + preview); folder sync carries a marker file and saves straight
+    // into the shared folder. Sync attempts without local consent are
+    // declined silently further below instead of showing the receive dialog.
+    final isSyncPeer = syncSettings.isSyncPeer(senderFingerprint);
     final wantsClipboardText = files.length == 1 && files.values.first.fileName == clipboardSyncFileName;
     final wantsClipboardImage = files.length == 1 && isClipboardSyncImageFileName(files.values.first.fileName);
     final hasFolderSyncMarker = files.values.any((f) => f.fileName == folderSyncMarkerFileName);
@@ -194,7 +194,7 @@ class ReceiveController {
           await Clipboard.setData(ClipboardData(text: preview));
           server.ref.notifier(clipboardSyncProvider).markReceived(preview);
           // The peer proved it paired us and enabled clipboard sync too.
-          await server.ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(true);
+          await server.ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(senderFingerprint, true);
           _logger.info('Clipboard synced from $senderAlias');
           showSyncToastLocalized(en: 'Clipboard text synced from $senderAlias', vi: 'Đã đồng bộ clipboard chữ từ $senderAlias');
         } catch (e) {
@@ -522,14 +522,12 @@ class ReceiveController {
       final syncSettings = server.ref.read(syncSettingsProvider);
       final isFolderSyncSession = syncSettings.folderSyncEnabled &&
           syncSettings.syncFolderPath != null &&
-          syncSettings.syncPeerFingerprint != null &&
-          syncSettings.syncPeerFingerprint == session.sender.fingerprint &&
+          syncSettings.isSyncPeer(session.sender.fingerprint) &&
           session.destinationDirectory == syncSettings.syncFolderPath;
       // Clipboard image sync sessions also finish silently: apply the image
       // to the clipboard and remove the transport copy from the cache.
       final isClipboardImageSession = syncSettings.clipboardSyncEnabled &&
-          syncSettings.syncPeerFingerprint != null &&
-          syncSettings.syncPeerFingerprint == session.sender.fingerprint &&
+          syncSettings.isSyncPeer(session.sender.fingerprint) &&
           session.files.length == 1 &&
           isClipboardSyncImageFileName(session.files.values.first.file.fileName) &&
           session.destinationDirectory == session.cacheDirectory;
@@ -548,7 +546,7 @@ class ReceiveController {
               await Pasteboard.writeImage(bytes);
             }
             server.ref.notifier(clipboardSyncProvider).markReceivedImage(bytes);
-            await server.ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(true);
+            await server.ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(session.sender.fingerprint, true);
             applied = true;
             _logger.info('Clipboard image synced from ${session.senderAlias}');
             await File(savedPath).delete();
@@ -578,7 +576,7 @@ class ReceiveController {
         ]);
         if (!hasError) {
           // The peer proved it paired us and enabled folder sync too.
-          await server.ref.notifier(syncSettingsProvider).setFolderPeerConfirmed(true);
+          await server.ref.notifier(syncSettingsProvider).setFolderPeerConfirmed(session.sender.fingerprint, true);
         }
         final receivedCount = session.files.values.where((f) => f.path != null).length;
         Future.delayed(Duration.zero, () {

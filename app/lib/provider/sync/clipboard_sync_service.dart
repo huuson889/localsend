@@ -78,6 +78,15 @@ final clipboardSyncProvider = NotifierProvider<ClipboardSyncService, ClipboardSy
   return ClipboardSyncService();
 });
 
+/// Per-peer transient-failure bookkeeping. Peers are independent: one
+/// peer failing (or being offline) must not block, delay or spam-report
+/// sync with the others.
+class _PeerRetryState {
+  int consecutiveFailures = 0;
+  DateTime? nextRetryAt;
+  bool failureToastShown = false;
+}
+
 /// Watches the local clipboard and forwards new text to the paired device.
 ///
 /// How it works:
@@ -100,53 +109,68 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
   Timer? _timer;
   bool _sending = false;
 
-  /// Last clipboard text seen by the poller.
-  String? _lastKnownText;
+  /// Last text received from a peer (or primed at setup). It is never
+  /// sent anywhere: pairs are independent, so content received from one
+  /// peer is not forwarded to another peer either.
+  String? _suppressedText;
 
-  /// Last text that was sent to or received from the peer.
-  /// Used to suppress echo loops.
-  String? _lastSyncedText;
+  /// Last text successfully sent to each peer (by fingerprint).
+  final Map<String, String> _textSentToPeer = {};
 
-  /// Signature of the last clipboard image seen by the poller.
-  String? _lastKnownImageSig;
+  /// Last text each peer rejected (not paired back / feature off there).
+  /// The same text is not offered to that peer again; other peers are
+  /// unaffected.
+  final Map<String, String> _textRejectedByPeer = {};
 
-  /// Signature of the last image that was sent to or received from the peer.
-  /// Used to suppress echo loops.
-  String? _lastSyncedImageSig;
+  /// Signature of the last image received from a peer (or primed at
+  /// setup). Never sent anywhere (see [_suppressedText]).
+  String? _suppressedImageSig;
+
+  /// Signature of the last image successfully sent to each peer.
+  final Map<String, String> _imageSentToPeer = {};
+
+  /// Signature of the last image each peer rejected.
+  final Map<String, String> _imageRejectedByPeer = {};
 
   DateTime? _lastSendAt;
 
   /// Transient send failures are retried silently with a growing delay;
-  /// the user only gets one failure toast per failure streak, not one
-  /// per poll.
-  int _consecutiveSendFailures = 0;
-  DateTime? _nextRetryAt;
-  bool _failureToastShown = false;
+  /// the user only gets one failure toast per failure streak and peer,
+  /// not one per poll.
+  final Map<String, _PeerRetryState> _retryByPeer = {};
 
   @override
   ClipboardSyncState init() => ClipboardSyncState.initial;
 
-  bool _retryPending(DateTime now) => _nextRetryAt != null && now.isBefore(_nextRetryAt!);
+  _PeerRetryState _retryFor(String fingerprint) => _retryByPeer.putIfAbsent(fingerprint, () => _PeerRetryState());
 
-  void _noteSendFailure() {
-    _consecutiveSendFailures++;
-    final delaySeconds = _consecutiveSendFailures <= 1 ? 5 : _consecutiveSendFailures == 2 ? 15 : 30;
-    _nextRetryAt = DateTime.now().add(Duration(seconds: delaySeconds));
+  bool _retryPending(String fingerprint, DateTime now) {
+    final retry = _retryFor(fingerprint);
+    return retry.nextRetryAt != null && now.isBefore(retry.nextRetryAt!);
+  }
+
+  void _noteSendFailure(String fingerprint) {
+    final retry = _retryFor(fingerprint);
+    retry.consecutiveFailures++;
+    final delaySeconds = retry.consecutiveFailures <= 1 ? 5 : retry.consecutiveFailures == 2 ? 15 : 30;
+    retry.nextRetryAt = DateTime.now().add(Duration(seconds: delaySeconds));
   }
 
   /// Whether a failure toast should be shown now (once per streak).
-  bool _claimFailureToast() {
-    if (_failureToastShown) {
+  bool _claimFailureToast(String fingerprint) {
+    final retry = _retryFor(fingerprint);
+    if (retry.failureToastShown) {
       return false;
     }
-    _failureToastShown = true;
+    retry.failureToastShown = true;
     return true;
   }
 
-  void _noteSendSuccess() {
-    _consecutiveSendFailures = 0;
-    _nextRetryAt = null;
-    _failureToastShown = false;
+  void _noteSendSuccess(String fingerprint) {
+    final retry = _retryFor(fingerprint);
+    retry.consecutiveFailures = 0;
+    retry.nextRetryAt = null;
+    retry.failureToastShown = false;
   }
 
   void start() {
@@ -187,10 +211,12 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
   /// clipboard as new. Used by the manual "send now" action: the current
   /// clipboard should be pushed to the peer once, on explicit request.
   void resetSyncCache() {
-    _lastKnownText = null;
-    _lastSyncedText = null;
-    _lastKnownImageSig = null;
-    _lastSyncedImageSig = null;
+    _suppressedText = null;
+    _textSentToPeer.clear();
+    _textRejectedByPeer.clear();
+    _suppressedImageSig = null;
+    _imageSentToPeer.clear();
+    _imageRejectedByPeer.clear();
   }
 
   /// Records the current clipboard as "already seen" without sending it.
@@ -203,8 +229,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     try {
       final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
       if (text != null && text.isNotEmpty) {
-        _lastKnownText = text;
-        _lastSyncedText = text;
+        _suppressedText = text;
         return;
       }
     } catch (e) {
@@ -213,9 +238,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     try {
       final bytes = checkPlatform([TargetPlatform.android]) ? await android_channel.getClipboardImageAndroid() : await Pasteboard.image;
       if (bytes != null && bytes.isNotEmpty) {
-        final signature = _imageSignature(bytes);
-        _lastKnownImageSig = signature;
-        _lastSyncedImageSig = signature;
+        _suppressedImageSig = _imageSignature(bytes);
       }
     } catch (e) {
       _logger.fine('Priming clipboard image cache failed: $e');
@@ -225,17 +248,14 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
   /// Called by the receiver when clipboard text was applied from the peer,
   /// so the poller does not send it back.
   void markReceived(String text) {
-    _lastSyncedText = text;
-    _lastKnownText = text;
+    _suppressedText = text;
     state = state.copyWith(lastReceivedAt: DateTime.now());
   }
 
   /// Called by the receiver when a clipboard image was applied from the
   /// peer, so the poller does not send it back.
   void markReceivedImage(Uint8List bytes) {
-    final signature = _imageSignature(bytes);
-    _lastSyncedImageSig = signature;
-    _lastKnownImageSig = signature;
+    _suppressedImageSig = _imageSignature(bytes);
     state = state.copyWith(lastReceivedAt: DateTime.now());
   }
 
@@ -289,98 +309,108 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     }
 
     if (current == null || current.isEmpty) {
-      _lastKnownText = current;
       // No text on the clipboard: maybe an image was copied instead.
       await _pollImage();
       return;
     }
-    if (current == _lastSyncedText) {
-      // Already synced (sent or received). Just track it.
-      _lastKnownText = current;
-      return;
-    }
-    if (current == _lastKnownText) {
-      // Unchanged since last poll.
+    if (current == _suppressedText) {
+      // Received from a peer (or primed at setup): never echo it back and
+      // never forward it to other peers. Pairs are independent.
       return;
     }
 
     final bytes = utf8.encode(current);
     if (bytes.length > maxClipboardSyncBytes) {
       _logger.info('Clipboard text too large (${bytes.length} bytes), skipped');
-      _lastKnownText = current;
+      _suppressedText = current;
       return;
     }
 
+    // Fan out to every paired peer that is currently discovered. Peers
+    // that are offline simply stay pending: their per-peer sent marker is
+    // not set, so the text goes out as soon as they appear again.
+    final peers = resolveSyncPeers(ref);
+    if (peers.isEmpty) {
+      return;
+    }
     final now = DateTime.now();
+    final pending = peers
+        .where(
+          (peer) =>
+              _textSentToPeer[peer.fingerprint] != current &&
+              _textRejectedByPeer[peer.fingerprint] != current &&
+              !_retryPending(peer.fingerprint, now),
+        )
+        .toList();
+    if (pending.isEmpty) {
+      // Every online peer already has this text (or rejected it).
+      return;
+    }
     if (_lastSendAt != null && now.difference(_lastSendAt!) < _minSendInterval) {
-      // Rate limited. Keep _lastKnownText stale so we retry next tick.
-      return;
-    }
-
-    final peer = resolveSyncPeer(ref);
-    if (peer == null) {
-      // Peer not in the discovery list right now: wait silently. The
-      // content stays pending and is sent when the peer appears again.
-      return;
-    }
-    if (_retryPending(now)) {
-      // A recent send failed; retry silently after the backoff delay.
+      // Rate limited. The per-peer markers stay unset, so the pending
+      // peers are retried on a later tick.
       return;
     }
 
     _sending = true;
+    var anySent = false;
     try {
-      final file = CrossFile(
-        name: clipboardSyncFileName,
-        fileType: FileType.text,
-        size: bytes.length,
-        thumbnail: null,
-        asset: null,
-        path: null,
-        bytes: bytes,
-        lastModified: null,
-        lastAccessed: null,
-      );
-      showSyncToastLocalized(en: 'Sending clipboard text to ${peer.alias}…', vi: 'Đang gửi clipboard chữ tới ${peer.alias}…');
-      final outcome = await _sendInBackground(peer: peer, files: [file]);
-      if (outcome != _SendOutcome.sent) {
-        if (outcome == _SendOutcome.rejected) {
-          // The peer has not agreed to clipboard sync (yet). Remember this
-          // text as seen so it is not offered again on every poll; a new
-          // copy, a settings change or "send now" retries.
-          _lastKnownText = current;
-          await ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(false);
-          state = state.copyWith(lastError: 'Waiting for ${peer.alias} to favorite this device and enable clipboard sync');
-          showSyncToastLocalized(
-            en: 'Waiting for ${peer.alias} to enable clipboard sync',
-            vi: 'Đang chờ ${peer.alias} bật đồng bộ clipboard',
+      for (final peer in pending) {
+        try {
+          final file = CrossFile(
+            name: clipboardSyncFileName,
+            fileType: FileType.text,
+            size: bytes.length,
+            thumbnail: null,
+            asset: null,
+            path: null,
+            bytes: bytes,
+            lastModified: null,
+            lastAccessed: null,
           );
-        } else {
-          _noteSendFailure();
-          state = state.copyWith(lastError: 'Clipboard text was not accepted by ${peer.alias}');
-          if (_claimFailureToast()) {
+          showSyncToastLocalized(en: 'Sending clipboard text to ${peer.alias}…', vi: 'Đang gửi clipboard chữ tới ${peer.alias}…');
+          final outcome = await _sendInBackground(peer: peer, files: [file]);
+          if (outcome == _SendOutcome.rejected) {
+            // This peer has not agreed to clipboard sync (yet). Do not
+            // offer it this text again; other peers are unaffected. A new
+            // copy, a settings change or "send now" retries.
+            _textRejectedByPeer[peer.fingerprint] = current;
+            await ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(peer.fingerprint, false);
+            state = state.copyWith(lastError: 'Waiting for ${peer.alias} to favorite this device and enable clipboard sync');
+            showSyncToastLocalized(
+              en: 'Waiting for ${peer.alias} to enable clipboard sync',
+              vi: 'Đang chờ ${peer.alias} bật đồng bộ clipboard',
+            );
+          } else if (outcome == _SendOutcome.failed) {
+            _noteSendFailure(peer.fingerprint);
+            state = state.copyWith(lastError: 'Clipboard text was not accepted by ${peer.alias}');
+            if (_claimFailureToast(peer.fingerprint)) {
+              showSyncToastLocalized(en: 'Clipboard text sync failed', vi: 'Đồng bộ clipboard chữ thất bại');
+            }
+          } else {
+            _noteSendSuccess(peer.fingerprint);
+            _textSentToPeer[peer.fingerprint] = current;
+            _textRejectedByPeer.remove(peer.fingerprint);
+            anySent = true;
+            await ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(peer.fingerprint, true);
+            state = state.copyWith(lastSentAt: DateTime.now(), clearError: true);
+            showSyncToastLocalized(en: 'Clipboard text sent to ${peer.alias}', vi: 'Đã gửi clipboard chữ tới ${peer.alias}');
+            _logger.info('Clipboard synced to ${peer.alias} (${bytes.length} bytes)');
+          }
+        } catch (e) {
+          _logger.warning('Clipboard sync send to ${peer.alias} failed: $e');
+          _noteSendFailure(peer.fingerprint);
+          state = state.copyWith(lastError: e.toString());
+          if (_claimFailureToast(peer.fingerprint)) {
             showSyncToastLocalized(en: 'Clipboard text sync failed', vi: 'Đồng bộ clipboard chữ thất bại');
           }
         }
-        return;
-      }
-      _noteSendSuccess();
-      _lastSyncedText = current;
-      _lastKnownText = current;
-      _lastSendAt = now;
-      await ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(true);
-      state = state.copyWith(lastSentAt: now, clearError: true);
-      showSyncToastLocalized(en: 'Clipboard text sent to ${peer.alias}', vi: 'Đã gửi clipboard chữ tới ${peer.alias}');
-      _logger.info('Clipboard synced to ${peer.alias} (${bytes.length} bytes)');
-    } catch (e) {
-      _logger.warning('Clipboard sync send failed: $e');
-      _noteSendFailure();
-      state = state.copyWith(lastError: e.toString());
-      if (_claimFailureToast()) {
-        showSyncToastLocalized(en: 'Clipboard text sync failed', vi: 'Đồng bộ clipboard chữ thất bại');
       }
     } finally {
       _sending = false;
+    }
+    if (anySent) {
+      _lastSendAt = DateTime.now();
     }
   }
 
@@ -402,37 +432,39 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     if (bytes == null || bytes.isEmpty) {
       return;
     }
+    final signature = _imageSignature(bytes);
     if (bytes.length > maxClipboardImageBytes) {
       _logger.info('Clipboard image too large (${bytes.length} bytes), skipped');
-      _lastKnownImageSig = _imageSignature(bytes);
+      _suppressedImageSig = signature;
+      return;
+    }
+    if (signature == _suppressedImageSig) {
+      // Received from a peer (or primed at setup): never echo or forward.
       return;
     }
 
-    final signature = _imageSignature(bytes);
-    if (signature == _lastSyncedImageSig) {
-      // Already synced (sent or received). Just track it.
-      _lastKnownImageSig = signature;
+    // Same fan-out as text: every discovered paired peer that has not
+    // received (or rejected) this image yet gets it; offline peers stay
+    // pending via their missing per-peer marker.
+    final peers = resolveSyncPeers(ref);
+    if (peers.isEmpty) {
       return;
     }
-    if (signature == _lastKnownImageSig) {
-      // Unchanged since last poll.
-      return;
-    }
-
     final now = DateTime.now();
+    final pending = peers
+        .where(
+          (peer) =>
+              _imageSentToPeer[peer.fingerprint] != signature &&
+              _imageRejectedByPeer[peer.fingerprint] != signature &&
+              !_retryPending(peer.fingerprint, now),
+        )
+        .toList();
+    if (pending.isEmpty) {
+      return;
+    }
     if (_lastSendAt != null && now.difference(_lastSendAt!) < _minSendInterval) {
-      // Rate limited. Keep the signature stale so we retry next tick.
-      return;
-    }
-
-    final peer = resolveSyncPeer(ref);
-    if (peer == null) {
-      // Peer not in the discovery list right now: wait silently. The
-      // image stays pending and is sent when the peer appears again.
-      return;
-    }
-    if (_retryPending(now)) {
-      // A recent send failed; retry silently after the backoff delay.
+      // Rate limited. The per-peer markers stay unset, so the pending
+      // peers are retried on a later tick.
       return;
     }
 
@@ -450,57 +482,63 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     }
 
     _sending = true;
+    var anySent = false;
     try {
-      final file = CrossFile(
-        name: '$clipboardSyncImagePrefix$imageType',
-        fileType: FileType.image,
-        size: imageBytes.length,
-        thumbnail: null,
-        asset: null,
-        path: null,
-        bytes: imageBytes,
-        lastModified: null,
-        lastAccessed: null,
-      );
-      showSyncToastLocalized(en: 'Sending clipboard image to ${peer.alias}…', vi: 'Đang gửi clipboard hình ảnh tới ${peer.alias}…');
-      final outcome = await _sendInBackground(peer: peer, files: [file]);
-      if (outcome != _SendOutcome.sent) {
-        if (outcome == _SendOutcome.rejected) {
-          // Same anti-spam rule as for text: do not re-offer this image
-          // until the clipboard changes or the user retries manually.
-          _lastKnownImageSig = signature;
-          await ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(false);
-          state = state.copyWith(lastError: 'Waiting for ${peer.alias} to favorite this device and enable clipboard sync');
-          showSyncToastLocalized(
-            en: 'Waiting for ${peer.alias} to enable clipboard sync',
-            vi: 'Đang chờ ${peer.alias} bật đồng bộ clipboard',
+      for (final peer in pending) {
+        try {
+          final file = CrossFile(
+            name: '$clipboardSyncImagePrefix$imageType',
+            fileType: FileType.image,
+            size: imageBytes.length,
+            thumbnail: null,
+            asset: null,
+            path: null,
+            bytes: imageBytes,
+            lastModified: null,
+            lastAccessed: null,
           );
-        } else {
-          _noteSendFailure();
-          state = state.copyWith(lastError: 'Clipboard image was not accepted by ${peer.alias}');
-          if (_claimFailureToast()) {
+          showSyncToastLocalized(en: 'Sending clipboard image to ${peer.alias}…', vi: 'Đang gửi clipboard hình ảnh tới ${peer.alias}…');
+          final outcome = await _sendInBackground(peer: peer, files: [file]);
+          if (outcome == _SendOutcome.rejected) {
+            // Same anti-spam rule as for text, but per peer: this image is
+            // not re-offered to this peer; others are unaffected.
+            _imageRejectedByPeer[peer.fingerprint] = signature;
+            await ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(peer.fingerprint, false);
+            state = state.copyWith(lastError: 'Waiting for ${peer.alias} to favorite this device and enable clipboard sync');
+            showSyncToastLocalized(
+              en: 'Waiting for ${peer.alias} to enable clipboard sync',
+              vi: 'Đang chờ ${peer.alias} bật đồng bộ clipboard',
+            );
+          } else if (outcome == _SendOutcome.failed) {
+            _noteSendFailure(peer.fingerprint);
+            state = state.copyWith(lastError: 'Clipboard image was not accepted by ${peer.alias}');
+            if (_claimFailureToast(peer.fingerprint)) {
+              showSyncToastLocalized(en: 'Clipboard image sync failed', vi: 'Đồng bộ clipboard hình ảnh thất bại');
+            }
+          } else {
+            _noteSendSuccess(peer.fingerprint);
+            _imageSentToPeer[peer.fingerprint] = signature;
+            _imageRejectedByPeer.remove(peer.fingerprint);
+            anySent = true;
+            await ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(peer.fingerprint, true);
+            state = state.copyWith(lastSentAt: DateTime.now(), clearError: true);
+            showSyncToastLocalized(en: 'Clipboard image sent to ${peer.alias}', vi: 'Đã gửi clipboard hình ảnh tới ${peer.alias}');
+            _logger.info('Clipboard image synced to ${peer.alias} (${imageBytes.length} bytes)');
+          }
+        } catch (e) {
+          _logger.warning('Clipboard image sync send to ${peer.alias} failed: $e');
+          _noteSendFailure(peer.fingerprint);
+          state = state.copyWith(lastError: e.toString());
+          if (_claimFailureToast(peer.fingerprint)) {
             showSyncToastLocalized(en: 'Clipboard image sync failed', vi: 'Đồng bộ clipboard hình ảnh thất bại');
           }
         }
-        return;
-      }
-      _noteSendSuccess();
-      _lastSyncedImageSig = signature;
-      _lastKnownImageSig = signature;
-      _lastSendAt = now;
-      await ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(true);
-      state = state.copyWith(lastSentAt: now, clearError: true);
-      showSyncToastLocalized(en: 'Clipboard image sent to ${peer.alias}', vi: 'Đã gửi clipboard hình ảnh tới ${peer.alias}');
-      _logger.info('Clipboard image synced to ${peer.alias} (${imageBytes.length} bytes)');
-    } catch (e) {
-      _logger.warning('Clipboard image sync send failed: $e');
-      _noteSendFailure();
-      state = state.copyWith(lastError: e.toString());
-      if (_claimFailureToast()) {
-        showSyncToastLocalized(en: 'Clipboard image sync failed', vi: 'Đồng bộ clipboard hình ảnh thất bại');
       }
     } finally {
       _sending = false;
+    }
+    if (anySent) {
+      _lastSendAt = DateTime.now();
     }
   }
 

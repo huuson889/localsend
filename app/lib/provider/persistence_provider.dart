@@ -60,12 +60,15 @@ const _receiveHistory = 'ls_receive_history';
 const _favorites = 'ls_favorites';
 
 // Paired-device sync (clipboard + shared folder)
-const _syncPeerFingerprint = 'ls_sync_peer_fingerprint';
+const _syncPeerFingerprint = 'ls_sync_peer_fingerprint'; // legacy single-peer key (pre multi-peer)
+const _syncPeerFingerprints = 'ls_sync_peer_fingerprints';
 const _clipboardSyncEnabled = 'ls_clipboard_sync_enabled';
 const _folderSyncEnabled = 'ls_folder_sync_enabled';
 const _syncFolderPath = 'ls_sync_folder_path';
-const _syncClipboardConfirmedFingerprint = 'ls_sync_clipboard_confirmed_fingerprint';
-const _syncFolderConfirmedFingerprint = 'ls_sync_folder_confirmed_fingerprint';
+const _syncClipboardConfirmedFingerprint = 'ls_sync_clipboard_confirmed_fingerprint'; // legacy single-peer key
+const _syncFolderConfirmedFingerprint = 'ls_sync_folder_confirmed_fingerprint'; // legacy single-peer key
+const _syncClipboardConfirmedFingerprints = 'ls_sync_clipboard_confirmed_fingerprints';
+const _syncFolderConfirmedFingerprints = 'ls_sync_folder_confirmed_fingerprints';
 const _syncFolderSignatures = 'ls_sync_folder_signatures';
 
 // App Window Offset and Size info
@@ -307,16 +310,22 @@ class PersistenceService {
     await _prefs.setStringList(_favorites, favoritesRaw);
   }
 
-  String? getSyncPeerFingerprint() {
-    return _prefs.getString(_syncPeerFingerprint);
+  /// All paired sync peers. Migrates the legacy single-peer key on first
+  /// read: profiles paired with one device keep that pairing.
+  List<String> getSyncPeerFingerprints() {
+    final stored = _prefs.getStringList(_syncPeerFingerprints);
+    if (stored != null) {
+      return stored;
+    }
+    final legacy = _prefs.getString(_syncPeerFingerprint);
+    return legacy == null ? [] : [legacy];
   }
 
-  Future<void> setSyncPeerFingerprint(String? fingerprint) async {
-    if (fingerprint == null) {
-      await _prefs.remove(_syncPeerFingerprint);
-    } else {
-      await _prefs.setString(_syncPeerFingerprint, fingerprint);
-    }
+  Future<void> setSyncPeerFingerprints(List<String> fingerprints) async {
+    await _prefs.setStringList(_syncPeerFingerprints, fingerprints);
+    // The multi-peer list is authoritative now; drop the legacy key so a
+    // stale single peer is never resurrected by the migration above.
+    await _prefs.remove(_syncPeerFingerprint);
   }
 
   bool isClipboardSyncEnabled() {
@@ -347,31 +356,36 @@ class PersistenceService {
     }
   }
 
-  /// Fingerprint for which the peer last proved it enabled clipboard sync
-  /// back (accepted a sync from us, or sent one we accepted).
-  String? getSyncClipboardConfirmedFingerprint() {
-    return _prefs.getString(_syncClipboardConfirmedFingerprint);
-  }
-
-  Future<void> setSyncClipboardConfirmedFingerprint(String? fingerprint) async {
-    if (fingerprint == null) {
-      await _prefs.remove(_syncClipboardConfirmedFingerprint);
-    } else {
-      await _prefs.setString(_syncClipboardConfirmedFingerprint, fingerprint);
+  /// Peers that last proved they enabled clipboard sync back (accepted a
+  /// sync from us, or sent one we accepted). Migrates the legacy
+  /// single-peer key on first read.
+  List<String> getSyncClipboardConfirmedFingerprints() {
+    final stored = _prefs.getStringList(_syncClipboardConfirmedFingerprints);
+    if (stored != null) {
+      return stored;
     }
+    final legacy = _prefs.getString(_syncClipboardConfirmedFingerprint);
+    return legacy == null ? [] : [legacy];
   }
 
-  /// Same as [getSyncClipboardConfirmedFingerprint], for folder sync.
-  String? getSyncFolderConfirmedFingerprint() {
-    return _prefs.getString(_syncFolderConfirmedFingerprint);
+  Future<void> setSyncClipboardConfirmedFingerprints(List<String> fingerprints) async {
+    await _prefs.setStringList(_syncClipboardConfirmedFingerprints, fingerprints);
+    await _prefs.remove(_syncClipboardConfirmedFingerprint);
   }
 
-  Future<void> setSyncFolderConfirmedFingerprint(String? fingerprint) async {
-    if (fingerprint == null) {
-      await _prefs.remove(_syncFolderConfirmedFingerprint);
-    } else {
-      await _prefs.setString(_syncFolderConfirmedFingerprint, fingerprint);
+  /// Same as [getSyncClipboardConfirmedFingerprints], for folder sync.
+  List<String> getSyncFolderConfirmedFingerprints() {
+    final stored = _prefs.getStringList(_syncFolderConfirmedFingerprints);
+    if (stored != null) {
+      return stored;
     }
+    final legacy = _prefs.getString(_syncFolderConfirmedFingerprint);
+    return legacy == null ? [] : [legacy];
+  }
+
+  Future<void> setSyncFolderConfirmedFingerprints(List<String> fingerprints) async {
+    await _prefs.setStringList(_syncFolderConfirmedFingerprints, fingerprints);
+    await _prefs.remove(_syncFolderConfirmedFingerprint);
   }
 
   /// Persisted folder-sync state: `peer|folder` -> relative path -> [size, modifiedMillis].

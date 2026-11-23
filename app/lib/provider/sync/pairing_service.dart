@@ -188,8 +188,9 @@ class PairingService extends Notifier<PairingState> {
     );
   }
 
-  /// Saves [device] as favorite (if not already) and selects it as the
-  /// sync peer. Nothing is sent yet: sync starts with the next
+  /// Saves [device] as favorite (if not already) and adds it to the sync
+  /// peers. Existing pairs are kept: pairing is multi-device, each pair
+  /// syncs independently. Nothing is sent yet: sync starts with the next
   /// copy/change, once both sides enabled the same feature.
   Future<void> _savePairing(Device device) async {
     final ip = device.ip;
@@ -200,7 +201,7 @@ class PairingService extends Notifier<PairingState> {
             ),
           );
     }
-    await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(device.fingerprint);
+    await ref.notifier(syncSettingsProvider).addSyncPeerFingerprint(device.fingerprint);
     updateSyncBackgroundService(ref);
     ref.notifier(clipboardSyncProvider).primeCache(); // ignore: unawaited_futures
     ref.notifier(folderSyncProvider).pollNow(); // ignore: unawaited_futures

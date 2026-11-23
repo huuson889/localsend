@@ -228,7 +228,7 @@ class _FavoriteEditDialogState extends State<FavoriteEditDialog> with Refena {
                       // Pair the newly added device for sync right away.
                       // Nothing is sent yet: sync starts with the next
                       // copy/change once both devices have paired.
-                      await ref.notifier(syncSettingsProvider).setSyncPeerFingerprint(response.body.token);
+                      await ref.notifier(syncSettingsProvider).addSyncPeerFingerprint(response.body.token);
                       updateSyncBackgroundService(ref);
                       ref.notifier(clipboardSyncProvider).primeCache(); // ignore: unawaited_futures
                       ref.notifier(folderSyncProvider).pollNow(); // ignore: unawaited_futures
