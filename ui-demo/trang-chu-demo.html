@@ -298,16 +298,6 @@
   function toggleInfo(){ const b=$('infoBox'); b.style.display = b.style.display==='none' ? 'block' : 'none'; }
   function acceptReceive(){ showHome(); toast('✔ Đã chấp nhận — app chuyển sang màn hình tiến trình nhận (demo)'); }
   function declineReceive(){ showHome(); toast('Đã từ chối phiên nhận'); }
-  function acceptIncoming(){
-    $('incbtns').style.display='none'; let pct=0;
-    const iv=setInterval(()=>{ pct=Math.min(100, pct+Math.random()*22); $('incbar').style.width=pct+'%'; $('incmeta').textContent='Đang nhận… '+Math.floor(pct)+'% ('+(1.7*pct/100).toFixed(1)+' MB / 1.7 MB)';
-      if(pct>=100){ clearInterval(iv); $('incmeta').textContent='✔ Đã nhận xong'; $('incbar').style.background='var(--green)';
-        const item=document.createElement('div'); item.className='rrow';
-        item.innerHTML='<span class="mi fic">image</span><div><div class="nm">Screenshot_20261123-113902.png</div><div class="mt">từ DESKTOP-JHONSR2 · 1.7 MB</div></div><span class="st">Vừa xong ✔</span>';
-        $('recentList').prepend(item); toast('✔ Đã nhận Screenshot_20261123-113902.png');
-        setTimeout(()=>{ $('incomingCard').style.display='none'; },2600); } },220);
-  }
-  function declineIncoming(){ $('incomingCard').style.display='none'; toast('Đã từ chối phiên nhận'); }
 </script>
 </body>
 </html>
