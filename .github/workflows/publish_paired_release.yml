@@ -1,0 +1,77 @@
+name: Publish paired-sync release
+
+# Creates (or updates) the GitHub *prerelease* for one paired-sync build
+# version from the artifacts of two already-finished build runs:
+#   - "Build Android APK (debug)"        -> apk-result-debug-<version>
+#   - "Build windows exe (unsigned)"     -> windows-exe-x86-64-unsigned-<version>
+#
+# The two build workflows also publish their own file to the same release
+# automatically, so this workflow is mainly for backfilling versions that
+# were built before that automation existed.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "App version, e.g. 1.19.3"
+        required: true
+      apk_run_id:
+        description: "Run ID of 'Build Android APK (debug)'"
+        required: true
+      exe_run_id:
+        description: "Run ID of 'Build windows exe (unsigned)'"
+        required: true
+      target:
+        description: "Commit SHA the release tag should point at (optional)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: apk-result-debug-${{ inputs.version }}
+          run-id: ${{ inputs.apk_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: dl/apk
+
+      - name: Download EXE artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: windows-exe-x86-64-unsigned-${{ inputs.version }}
+          run-id: ${{ inputs.exe_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: dl/exe
+
+      - name: Create or update prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}-paired-sync
+          name: LocalSend Paired Sync v${{ inputs.version }}
+          target_commitish: ${{ inputs.target }}
+          prerelease: true
+          body: |
+            Unofficial fork build of LocalSend with **paired sync** (test builds: Android APK is a debug build, Windows installer is unsigned).
+
+            ### Highlights
+            - Paired sync between trusted devices: pair with the heart button + 6-digit PIN on both devices
+            - Sync with **multiple devices** — each pair syncs independently, content is never forwarded between pairs
+            - Auto **clipboard sync** (text up to 16 KB, images up to 8 MB) both ways
+            - Auto **shared folder sync** both ways (new/changed files; deletions are not synced)
+            - Sync only while the paired device is discovered; offline peers are waited for silently
+
+            ### Downloads
+            - Android: `LocalSend-${{ inputs.version }}-debug-arm64.apk` (arm64, debug)
+            - Windows: `LocalSend-${{ inputs.version }}-windows-x64-unsigned.exe` (unsigned — Windows SmartScreen may warn)
+
+            Per-version details are in the pull request / commit history of this fork.
+          files: |
+            dl/apk/*.apk
+            dl/exe/*.exe
+          fail_on_unmatched_files: true

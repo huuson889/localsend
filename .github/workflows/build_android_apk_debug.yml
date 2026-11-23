@@ -7,6 +7,9 @@ env:
   FLUTTER_VERSION: "3.41.9"
   APK_BUILD_DIR: "/tmp/build"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -84,3 +87,32 @@ jobs:
           path: |
             ${{ env.APK_BUILD_DIR }}/app/build/app/outputs/flutter-apk/LocalSend-${{ needs.build.outputs.version }}-debug-arm64.apk
           if-no-files-found: error
+
+      # Every build also lands on the GitHub Releases page (prerelease).
+      # The Windows workflow publishes the EXE to the same release; the
+      # two usually finish minutes apart, so the release simply gains its
+      # second file when the other build completes.
+      - name: Publish APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build.outputs.version }}-paired-sync
+          name: LocalSend Paired Sync v${{ needs.build.outputs.version }}
+          prerelease: true
+          body: |
+            Unofficial fork build of LocalSend with **paired sync** (test builds: Android APK is a debug build, Windows installer is unsigned).
+
+            ### Highlights
+            - Paired sync between trusted devices: pair with the heart button + 6-digit PIN on both devices
+            - Sync with **multiple devices** — each pair syncs independently, content is never forwarded between pairs
+            - Auto **clipboard sync** (text up to 16 KB, images up to 8 MB) both ways
+            - Auto **shared folder sync** both ways (new/changed files; deletions are not synced)
+            - Sync only while the paired device is discovered; offline peers are waited for silently
+
+            ### Downloads
+            - Android: `LocalSend-${{ needs.build.outputs.version }}-debug-arm64.apk` (arm64, debug)
+            - Windows: `LocalSend-${{ needs.build.outputs.version }}-windows-x64-unsigned.exe` (unsigned — Windows SmartScreen may warn; appears here once the Windows build finishes)
+
+            Per-version details are in the pull request / commit history of this fork.
+          files: |
+            ${{ env.APK_BUILD_DIR }}/app/build/app/outputs/flutter-apk/LocalSend-${{ needs.build.outputs.version }}-debug-arm64.apk
+          fail_on_unmatched_files: true
