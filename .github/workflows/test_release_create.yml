@@ -1,0 +1,26 @@
+name: Test release create (one-time)
+
+# One-time self-test: verifies that a workflow can create a release with
+# the default GITHUB_TOKEN (the paired-sync build workflows rely on this
+# to publish their files). Creates a dummy prerelease and deletes it
+# again. Delete this file once it has run successfully.
+on:
+  push:
+    branches: [arena/47011167-localsend]
+    paths: [.github/workflows/test_release_create.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create and delete a dummy release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create v0.0.0-selftest --target "$GITHUB_SHA" --prerelease --title "selftest" --notes "selftest" 
+          gh release delete v0.0.0-selftest --yes
+          echo "release create+delete with GITHUB_TOKEN works"
