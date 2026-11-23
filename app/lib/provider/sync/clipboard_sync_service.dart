@@ -299,6 +299,15 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     }
     state = state.copyWith(lastPollAt: DateTime.now());
 
+    if (checkPlatform([TargetPlatform.android])) {
+      // Android first: an image clip holds a content URI, and the text
+      // reader below would surface that URI as pseudo-text, so checking
+      // text first would never reach the image branch.
+      if (await _pollImage()) {
+        return;
+      }
+    }
+
     String? current;
     try {
       current = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
@@ -309,8 +318,16 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     }
 
     if (current == null || current.isEmpty) {
-      // No text on the clipboard: maybe an image was copied instead.
-      await _pollImage();
+      // No text on the clipboard: maybe an image was copied instead
+      // (Android already checked above).
+      if (!checkPlatform([TargetPlatform.android])) {
+        await _pollImage();
+      }
+      return;
+    }
+    if (current.startsWith('content://')) {
+      // Pseudo-text: the string form of an image clip's URI (Android).
+      // Never sync it as text; the image branch above handles the clip.
       return;
     }
     if (current == _suppressedText) {
@@ -418,7 +435,10 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
   /// same `pasteboard` plugin the manual "Paste" action uses) and sends it
   /// as a regular file named `__clipboard_sync__.<ext>`. The receiver
   /// recognizes the name and writes it back to its clipboard.
-  Future<void> _pollImage() async {
+  /// Returns true when the clipboard currently holds an image (whether
+  /// it was sent, already synced, or skipped), so the caller does not
+  /// fall through to the text branch for the same clip.
+  Future<bool> _pollImage() async {
     Uint8List? bytes;
     try {
       // On Android the pasteboard plugin misses image clips on some devices,
@@ -427,20 +447,20 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     } catch (e) {
       // No image access (e.g. background on mobile). Retry next tick.
       _logger.fine('Clipboard image read failed: $e');
-      return;
+      return false;
     }
     if (bytes == null || bytes.isEmpty) {
-      return;
+      return false;
     }
     final signature = _imageSignature(bytes);
     if (bytes.length > maxClipboardImageBytes) {
       _logger.info('Clipboard image too large (${bytes.length} bytes), skipped');
       _suppressedImageSig = signature;
-      return;
+      return true;
     }
     if (signature == _suppressedImageSig) {
       // Received from a peer (or primed at setup): never echo or forward.
-      return;
+      return true;
     }
 
     // Same fan-out as text: every discovered paired peer that has not
@@ -448,7 +468,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     // pending via their missing per-peer marker.
     final peers = resolveSyncPeers(ref);
     if (peers.isEmpty) {
-      return;
+      return true;
     }
     final now = DateTime.now();
     final pending = peers
@@ -460,12 +480,12 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
         )
         .toList();
     if (pending.isEmpty) {
-      return;
+      return true;
     }
     if (_lastSendAt != null && now.difference(_lastSendAt!) < _minSendInterval) {
       // Rate limited. The per-peer markers stay unset, so the pending
       // peers are retried on a later tick.
-      return;
+      return true;
     }
 
     // On Windows the clipboard image is a BMP which is large and
@@ -540,6 +560,7 @@ class ClipboardSyncService extends Notifier<ClipboardSyncState> {
     if (anySent) {
       _lastSendAt = DateTime.now();
     }
+    return true;
   }
 
   /// Cheap fingerprint of clipboard image bytes: the length plus an FNV-1a

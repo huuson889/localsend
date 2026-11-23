@@ -227,17 +227,32 @@ class MainActivity : FlutterActivity() {
                 return
             }
             // A clip can hold several items (e.g. text first, image second):
-            // return the first item that actually is an image.
+            // return the first item that actually is an image. Each item is
+            // read defensively: one unreadable item (revoked URI grant, odd
+            // provider) must not fail the whole read.
             for (i in 0 until clip.itemCount) {
-                val uri = clip.getItemAt(i).uri ?: continue
-                val mime = contentResolver.getType(uri)
-                if (mime != null && !mime.startsWith("image")) {
+                try {
+                    val uri = clip.getItemAt(i).uri ?: continue
+                    val mime = try {
+                        contentResolver.getType(uri)
+                    } catch (e: Exception) {
+                        null
+                    }
+                    if (mime != null && !mime.startsWith("image")) {
+                        continue
+                    }
+                    val bytes = try {
+                        contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    } catch (e: Exception) {
+                        null
+                    }
+                    if (bytes != null && bytes.isNotEmpty()) {
+                        result.success(bytes)
+                        return
+                    }
+                } catch (e: Exception) {
+                    // Skip this item and try the next one.
                     continue
-                }
-                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                if (bytes != null && bytes.isNotEmpty()) {
-                    result.success(bytes)
-                    return
                 }
             }
             result.success(null)
