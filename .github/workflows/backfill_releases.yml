@@ -57,4 +57,5 @@ jobs:
       - name: Upload assets to prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: gh release upload "v${{ matrix.version }}-paired-sync" dl/apk/*.apk dl/exe/*.exe --clobber
