@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:localsend_app/model/cross_file.dart';
+import 'package:localsend_app/model/persistence/sync_settings.dart';
 import 'package:localsend_app/model/send_mode.dart';
 import 'package:localsend_app/model/state/send/send_session_state.dart';
-import 'package:localsend_app/model/persistence/sync_settings.dart';
 import 'package:localsend_app/model/state/send/sending_file.dart';
 import 'package:localsend_app/pages/home_page.dart';
 import 'package:localsend_app/pages/home_page_controller.dart';
