@@ -13,6 +13,13 @@
 /// This is intentionally a plain model (not dart_mappable) so it can live
 /// outside [SettingsState] without regenerating mappers.
 class SyncSettings {
+  /// Master switch for all paired sync. On by default, including for
+  /// devices that paired before this switch existed; only an explicit
+  /// opt-out is remembered. While off, every sync feature pauses and this
+  /// device silently declines incoming sync sessions, but the
+  /// per-feature settings below keep their values.
+  final bool pairedSyncEnabled;
+
   /// Fingerprints of the paired (trusted) devices. Empty if none paired.
   final List<String> syncPeerFingerprints;
 
@@ -42,6 +49,7 @@ class SyncSettings {
   final Set<String> folderConfirmedPeerFingerprints;
 
   const SyncSettings({
+    required this.pairedSyncEnabled,
     required this.syncPeerFingerprints,
     required this.clipboardSyncEnabled,
     required this.folderSyncEnabled,
@@ -52,6 +60,7 @@ class SyncSettings {
   });
 
   static const empty = SyncSettings(
+    pairedSyncEnabled: true,
     syncPeerFingerprints: [],
     clipboardSyncEnabled: false,
     folderSyncEnabled: false,
@@ -66,6 +75,7 @@ class SyncSettings {
   /// Copies with the given fields replaced.
   /// Pass [_unset] (default) to keep a nullable field, or null to clear it.
   SyncSettings copyWith({
+    bool? pairedSyncEnabled,
     List<String>? syncPeerFingerprints,
     bool? clipboardSyncEnabled,
     bool? folderSyncEnabled,
@@ -75,6 +85,7 @@ class SyncSettings {
     Set<String>? folderConfirmedPeerFingerprints,
   }) {
     return SyncSettings(
+      pairedSyncEnabled: pairedSyncEnabled ?? this.pairedSyncEnabled,
       syncPeerFingerprints: syncPeerFingerprints ?? this.syncPeerFingerprints,
       clipboardSyncEnabled: clipboardSyncEnabled ?? this.clipboardSyncEnabled,
       folderSyncEnabled: folderSyncEnabled ?? this.folderSyncEnabled,
@@ -106,11 +117,11 @@ class SyncSettings {
 
   int get folderConfirmedCount => syncPeerFingerprints.where(folderConfirmedPeerFingerprints.contains).length;
 
-  /// Whether clipboard sync can run (at least one peer + enabled).
-  bool get clipboardSyncActive => clipboardSyncEnabled && hasSyncPeer;
+  /// Whether clipboard sync can run (master on + at least one peer + enabled).
+  bool get clipboardSyncActive => pairedSyncEnabled && clipboardSyncEnabled && hasSyncPeer;
 
-  /// Whether folder sync can run (peer + folder selected + enabled).
-  bool get folderSyncActive => folderSyncEnabled && hasSyncPeer && syncFolderPath != null;
+  /// Whether folder sync can run (master on + peer + folder selected + enabled).
+  bool get folderSyncActive => pairedSyncEnabled && folderSyncEnabled && hasSyncPeer && syncFolderPath != null;
 }
 
 /// File name used for clipboard-sync transfers.

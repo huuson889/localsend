@@ -46,6 +46,11 @@ class _Strings {
   final String screenshotSync;
   final String screenshotNote;
   final String screenshotPermissionDenied;
+  final String masterSync;
+  final String masterEnable;
+  final String masterOn;
+  final String masterOff;
+  final String masterDevices;
   final String autoSync;
   final String running;
   final String stopped;
@@ -98,6 +103,11 @@ class _Strings {
     required this.screenshotSync,
     required this.screenshotNote,
     required this.screenshotPermissionDenied,
+    required this.masterSync,
+    required this.masterEnable,
+    required this.masterOn,
+    required this.masterOff,
+    required this.masterDevices,
     required this.autoSync,
     required this.running,
     required this.stopped,
@@ -152,6 +162,11 @@ class _Strings {
     screenshotSync: 'Auto-send screenshots (Android)',
     screenshotNote: 'Screenshots do not enter the Android clipboard, so new screenshots are picked up from the photo library instead. Needs photo access permission.',
     screenshotPermissionDenied: 'Photo access permission is needed to auto-send screenshots',
+    masterSync: 'Paired sync',
+    masterEnable: 'Enable paired sync',
+    masterOn: 'On',
+    masterOff: 'Off — all paired sync is paused',
+    masterDevices: 'paired device(s)',
     autoSync: 'Auto-sync',
     running: 'running',
     stopped: 'stopped',
@@ -206,6 +221,11 @@ class _Strings {
     screenshotSync: 'Tự động gửi ảnh chụp màn hình (Android)',
     screenshotNote: 'Ảnh chụp màn hình không vào clipboard Android nên app lấy từ thư viện ảnh. Cần quyền truy cập ảnh.',
     screenshotPermissionDenied: 'Cần quyền truy cập ảnh để tự động gửi ảnh chụp màn hình',
+    masterSync: 'Đồng bộ theo cặp',
+    masterEnable: 'Bật đồng bộ theo cặp',
+    masterOn: 'Đang bật',
+    masterOff: 'Đang tắt — toàn bộ đồng bộ theo cặp đang dừng',
+    masterDevices: 'thiết bị đã ghép cặp',
     autoSync: 'Tự động đồng bộ',
     running: 'đang chạy',
     stopped: 'đã dừng',
@@ -379,6 +399,23 @@ class SyncSettingsPage extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           _Section(
+            title: s.masterSync,
+            children: [
+              _ToggleRow(
+                label: s.masterEnable,
+                value: sync.pairedSyncEnabled,
+                onChanged: (b) async {
+                  await ref.notifier(syncSettingsProvider).setPairedSyncEnabled(b);
+                  updateSyncBackgroundService(ref);
+                },
+              ),
+              Text(
+                sync.pairedSyncEnabled ? '${s.masterOn} · ${peerFingerprints.length} ${s.masterDevices}' : s.masterOff,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+          _Section(
             title: s.pairedDevice,
             children: [
               // Pairing (heart + PIN in the Send tab) is the only way a
@@ -424,7 +461,7 @@ class SyncSettingsPage extends StatelessWidget {
               _ToggleRow(
                 label: s.autoClipboard,
                 value: sync.clipboardSyncEnabled,
-                onChanged: !sync.hasSyncPeer
+                onChanged: !sync.hasSyncPeer || !sync.pairedSyncEnabled
                     ? null
                     : (b) async {
                         await ref.notifier(syncSettingsProvider).setClipboardSyncEnabled(b);
@@ -445,7 +482,7 @@ class SyncSettingsPage extends StatelessWidget {
                 _ToggleRow(
                   label: s.screenshotSync,
                   value: sync.screenshotSyncEnabled,
-                  onChanged: !sync.hasSyncPeer
+                  onChanged: !sync.hasSyncPeer || !sync.pairedSyncEnabled
                       ? null
                       : (b) async {
                           await ref.notifier(syncSettingsProvider).setScreenshotSyncEnabled(b);
@@ -513,7 +550,7 @@ class SyncSettingsPage extends StatelessWidget {
               _ToggleRow(
                 label: s.autoFolder,
                 value: sync.folderSyncEnabled,
-                onChanged: !sync.hasSyncPeer || sync.syncFolderPath == null
+                onChanged: !sync.hasSyncPeer || !sync.pairedSyncEnabled || sync.syncFolderPath == null
                     ? null
                     : (b) async {
                         await ref.notifier(syncSettingsProvider).setFolderSyncEnabled(b);

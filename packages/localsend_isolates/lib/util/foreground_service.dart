@@ -88,17 +88,20 @@ class ForegroundService {
 
   /// Updates the notification.
   /// Throttled to [_updateInterval]; calls before the service is running are dropped.
+  /// Pass [force] for terminal state changes (a transfer ended, the
+  /// keep-alive content comes back): those must never be throttled away,
+  /// or the notification keeps showing a stale progress text forever.
   ///
   /// The [title] can change while the service runs, because what the service is keeping alive
   /// may change without it ever stopping.
-  static void updateNotification({required String title, required String text}) {
+  static void updateNotification({required String title, required String text, bool force = false}) {
     if (!_isSupported) {
       return;
     }
 
     final now = DateTime.now();
     final lastUpdate = _lastUpdate;
-    if (lastUpdate != null && now.difference(lastUpdate) < _updateInterval) {
+    if (!force && lastUpdate != null && now.difference(lastUpdate) < _updateInterval) {
       return;
     }
     _lastUpdate = now;

@@ -52,6 +52,11 @@ class TransferNotification {
         text: _text(),
       );
     }
+
+    // Show the transfer content even when the service already runs for a
+    // keep-alive hold (start() is a no-op then). Forced, because a fast
+    // transfer may end before the next throttled update would land.
+    ForegroundService.updateNotification(title: _title(), text: _text(), force: true);
   }
 
   /// Reports the progress of a single transfer and refreshes the notification.
@@ -86,15 +91,19 @@ class TransferNotification {
     if (_transfers.isEmpty) {
       final keepAlive = _keepAlive;
       if (keepAlive != null) {
+        // Forced: this restores the idle content after a transfer and must
+        // never be dropped by the update throttle (it would leave the
+        // finished transfer's progress on screen indefinitely).
         ForegroundService.updateNotification(
           title: keepAlive.title,
           text: keepAlive.text,
+          force: true,
         );
       } else {
         ForegroundService.stop();
       }
     } else {
-      ForegroundService.updateNotification(title: _title(), text: _text());
+      ForegroundService.updateNotification(title: _title(), text: _text(), force: true);
     }
   }
 

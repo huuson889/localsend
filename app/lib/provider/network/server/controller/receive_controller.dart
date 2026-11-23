@@ -109,8 +109,8 @@ class ReceiveController {
     final wantsClipboardText = files.length == 1 && files.values.first.fileName == clipboardSyncFileName;
     final wantsClipboardImage = files.length == 1 && isClipboardSyncImageFileName(files.values.first.fileName);
     final hasFolderSyncMarker = files.values.any((f) => f.fileName == folderSyncMarkerFileName);
-    final clipboardConsent = isSyncPeer && syncSettings.clipboardSyncEnabled;
-    final folderConsent = isSyncPeer && syncSettings.folderSyncEnabled && syncSettings.syncFolderPath != null;
+    final clipboardConsent = isSyncPeer && syncSettings.pairedSyncEnabled && syncSettings.clipboardSyncEnabled;
+    final folderConsent = isSyncPeer && syncSettings.pairedSyncEnabled && syncSettings.folderSyncEnabled && syncSettings.syncFolderPath != null;
     final isClipboardSync = clipboardConsent && wantsClipboardText;
     final isClipboardImageSync = clipboardConsent && wantsClipboardImage;
     // Pairing (PIN) handshake: a single text file with a fixed name whose
@@ -774,7 +774,13 @@ class ReceiveController {
     //   from the background,
     // - the service may ask for the notification permission, which Android cancels when it overlaps
     //   with the storage permission requests above.
-    TransferNotification.start(sessionId: session.sessionId, receiving: true);
+    // Background paired-sync sessions stay silent: they never take over the
+    // notification with transfer progress (the keep-alive content stays,
+    // and there is no progress notification that could be left behind).
+    final syncSettings = server.ref.read(syncSettingsProvider);
+    if (!_isBackgroundSyncSession(session, syncSettings)) {
+      TransferNotification.start(sessionId: session.sessionId, receiving: true);
+    }
 
     // From here on, the server isolate receives all accepted files on its own
     // and reports back via upload progress/result events.
@@ -785,6 +791,23 @@ class ReceiveController {
     server.ref
         .redux(parentIsolateProvider)
         .dispatch(IsolateHttpServerPrepareUploadDecisionAction(config: _buildReceiveConfig(updatedSession, fileNameMap)));
+  }
+
+  /// Whether [session] is an automatic paired-sync transfer (clipboard
+  /// image or folder sync) from a paired peer. Those run silently in the
+  /// background, unlike manual sends the user explicitly accepted.
+  bool _isBackgroundSyncSession(ReceiveSessionState session, SyncSettings syncSettings) {
+    if (!syncSettings.pairedSyncEnabled || !syncSettings.isSyncPeer(session.sender.fingerprint)) {
+      return false;
+    }
+    final fileNames = session.files.values.map((f) => f.file.fileName).toList();
+    if (syncSettings.clipboardSyncEnabled && fileNames.length == 1 && isClipboardSyncImageFileName(fileNames.first)) {
+      return true;
+    }
+    if (syncSettings.folderSyncEnabled && fileNames.contains(folderSyncMarkerFileName)) {
+      return true;
+    }
+    return false;
   }
 
   HttpServerReceiveConfig _buildReceiveConfig(ReceiveSessionState session, Map<String, String> fileNameMap) {

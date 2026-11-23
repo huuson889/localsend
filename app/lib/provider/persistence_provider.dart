@@ -66,6 +66,7 @@ const _clipboardSyncEnabled = 'ls_clipboard_sync_enabled';
 const _folderSyncEnabled = 'ls_folder_sync_enabled';
 const _syncFolderPath = 'ls_sync_folder_path';
 const _screenshotSyncEnabled = 'ls_screenshot_sync_enabled';
+const _pairedSyncEnabled = 'ls_paired_sync_enabled';
 const _syncClipboardConfirmedFingerprint = 'ls_sync_clipboard_confirmed_fingerprint'; // legacy single-peer key
 const _syncFolderConfirmedFingerprint = 'ls_sync_folder_confirmed_fingerprint'; // legacy single-peer key
 const _syncClipboardConfirmedFingerprints = 'ls_sync_clipboard_confirmed_fingerprints';
@@ -327,6 +328,17 @@ class PersistenceService {
     // The multi-peer list is authoritative now; drop the legacy key so a
     // stale single peer is never resurrected by the migration above.
     await _prefs.remove(_syncPeerFingerprint);
+  }
+
+  /// Master switch for paired sync. Defaults to on: devices that paired
+  /// before this switch existed keep syncing; only an explicit user
+  /// opt-out is remembered.
+  bool isPairedSyncEnabled() {
+    return _prefs.getBool(_pairedSyncEnabled) ?? true;
+  }
+
+  Future<void> setPairedSyncEnabled(bool enabled) async {
+    await _prefs.setBool(_pairedSyncEnabled, enabled);
   }
 
   bool isClipboardSyncEnabled() {

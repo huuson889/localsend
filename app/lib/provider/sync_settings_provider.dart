@@ -19,6 +19,7 @@ class SyncSettingsService extends PureNotifier<SyncSettings> {
   SyncSettings init() {
     final peers = _persistence.getSyncPeerFingerprints();
     return SyncSettings(
+      pairedSyncEnabled: _persistence.isPairedSyncEnabled(),
       syncPeerFingerprints: peers,
       clipboardSyncEnabled: _persistence.isClipboardSyncEnabled(),
       folderSyncEnabled: _persistence.isFolderSyncEnabled(),
@@ -58,6 +59,11 @@ class SyncSettingsService extends PureNotifier<SyncSettings> {
       clipboardConfirmedPeerFingerprints: clipboardConfirmed,
       folderConfirmedPeerFingerprints: folderConfirmed,
     );
+  }
+
+  Future<void> setPairedSyncEnabled(bool enabled) async {
+    await _persistence.setPairedSyncEnabled(enabled);
+    state = state.copyWith(pairedSyncEnabled: enabled);
   }
 
   Future<void> setClipboardSyncEnabled(bool enabled) async {
