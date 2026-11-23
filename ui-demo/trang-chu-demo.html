@@ -128,7 +128,7 @@
 <div class="layout">
 
   <div class="side">
-    <span class="badge2">DEMO UI · CHƯA ÁP DỤNG VÀO APP</span> <span class="badge2 ver">PHIÊN BẢN DEMO: v3</span>
+    <span class="badge2">DEMO UI · CHƯA ÁP DỤNG VÀO APP</span> <span class="badge2 ver">PHIÊN BẢN DEMO: v4</span>
     <h1>Trang chủ gộp Nhận + Gửi — vẽ theo đúng app thật</h1>
     <p class="sub">Bản v3 không còn tự chế: màu được <b>chấm trực tiếp từ ảnh chụp màn hình app của bạn</b>, icon là <b>Material Icons đúng tên trong mã nguồn</b> (description, image, content_paste, subject, folder, apps, laptop, ads_click, language, history…), kích thước đúng widget thật (BigButton cao 65/radius 10, thẻ thiết bị padding 15/radius 10, tên máy 20px).</p>
 
@@ -140,15 +140,17 @@
         <span class="sw"><i style="background:#a5c8fe"></i>Nhấn #A5C8FE</span>
       </div></div>
     <div class="point"><p><span class="num">2</span><b>Phần Gửi = nguyên xi tab Gửi hiện tại</b></p><p>Lựa chọn → Thiết bị lân cận (autorenew / ads_click / favorite / settings) → thẻ DESKTOP-JHONSR2 (laptop 46px, check_circle, tim đỏ, info_outline, badge HTTPS + Windows) → Gỡ lỗi → dòng nhắc wifi.</p></div>
-    <div class="point"><p><span class="num">3</span><b>Khối Nhận dùng lại đúng thành phần tab Nhận</b></p><p>Logo vòng xoay + alias <b>Z2467</b> + <b>#49</b>, nút viền “Nhận qua liên kết” (icon language) — thu nhỏ đặt dưới phần Gửi, thêm phiên nhận đến + nhận gần đây + dòng Lịch sử. Khung đứt nét chỉ là chú thích demo, app thật không có.</p></div>
+    <div class="point"><p><span class="num">3</span><b>Khối Nhận = tab Nhận thu gọn, đúng bản gốc</b></p><p>Theo <b>receive_tab.dart</b>: chỉ gồm logo + alias <b>Z2467</b> + <b>#49</b> + nút viền “Nhận qua liên kết”, và 2 nút góc <b>history</b> (mở trang Lịch sử) / <b>info</b> (bảng Tên máy · IP · Cổng). Bản v3 tôi tự bịa thẻ “yêu cầu nhận đến” + “nhận gần đây” trên tab Nhận — app gốc không có, đã xóa.</p></div>
+    <div class="point"><p><span class="num">3</span><b>Có người gửi đến → trang riêng toàn màn hình</b></p><p>Theo <b>receive_page.dart</b>: app mở trang nhận riêng (icon máy 64px, tên máy 48px, nút Từ chối đỏ / Chấp nhận). Bấm nút mô phỏng bên dưới để xem trang này trong demo.</p></div>
     <div class="point"><p><span class="num">4</span><b>Thanh điều hướng 4 → 3</b></p><p>Nhận (wifi) · Gửi (send) · Đồng bộ cặp (sync) · Cài đặt (settings) → <b>Trang chủ (home) · Đồng bộ cặp (sync) · Cài đặt (settings)</b>, pill chọn đúng màu thẻ #1C4583.</p></div>
 
     <div class="viewbtns">
       <button id="vb-home" class="active" onclick="showHome()">Trang chủ (đã gộp)</button>
       <button id="vb-hist" onclick="openHistory()">Lịch sử toàn màn hình</button>
+      <button id="vb-recv" onclick="openReceivePage()">Mô phỏng: có người gửi file đến</button>
     </div>
-    <p class="hint">Thử: <b>Chấp nhận</b> ở thẻ phiên nhận → tiến trình chạy → file nhảy xuống “Nhận gần đây”. <b>Lịch sử</b> mở trang toàn màn hình (như trang lịch sử hiện tại), ← quay lại.</p>
-    <div class="verline">Demo version: <b>v3</b> (v1, v2 đã bỏ vì lệch UI)<br>Minh hoạ theo app 1.19.5 · 23/11/2026</div>
+    <p class="hint">Thử: bấm <b>info</b> ở góc khối Nhận để mở bảng Tên máy/IP/Cổng; bấm <b>history</b> để vào trang Lịch sử; bấm <b>Mô phỏng</b> để xem trang nhận file toàn màn hình như app gốc.</p>
+    <div class="verline">Demo version: <b>v4</b> (v3 bịa thêm thẻ yêu cầu + danh sách gần đây — đã bỏ)<br>Minh hoạ theo app 1.19.5 · 23/11/2026</div>
   </div>
 
   <div class="phone">
@@ -191,45 +193,31 @@
           <button class="textbtn" onclick="toast('Mở gỡ lỗi (demo)')">Gỡ lỗi</button>
           <div class="wifihint">Vui lòng đảm bảo thiết bị gửi và nhận dùng chung mạng wifi.</div>
 
-          <!-- ===== KHỐI NHẬN (MỚI) ===== -->
+          <!-- ===== KHỐI NHẬN (MỚI) — thu gọn từ ReceiveTab gốc ===== -->
           <div class="recvwrap">
             <span class="recvtag">PHẦN NHẬN · MỚI (KHUNG NÀY CHỈ CÓ TRONG DEMO)</span>
-            <div class="title-md" style="margin-top:14px">Nhận</div>
-
-            <div class="card mecard" style="margin-top:10px">
-              <div class="logo"><i></i></div>
-              <div><div class="mealias">Z2467</div><div class="meid">#49</div></div>
-              <div class="ready">● Sẵn sàng nhận</div>
-            </div>
-            <button class="outlinebtn" onclick="toast('Nhận qua liên kết (demo)')"><span class="mi">language</span>Nhận qua liên kết</button>
-
-            <div class="card" id="incomingCard" style="margin-top:14px">
-              <div class="inchead"><span class="mi" style="font-size:19px">file_download</span>Yêu cầu nhận đến · DESKTOP-JHONSR2</div>
-              <div class="incfile">Screenshot_20261123-113902.png</div>
-              <div class="incmeta">1 tập tin · 1.7 MB</div>
-              <div class="bar"><div id="incbar"></div></div>
-              <div class="incmeta" id="incmeta">Đang chờ xác nhận…</div>
-              <div class="incbtns" id="incbtns">
-                <button class="btn primary" onclick="acceptIncoming()">Chấp nhận</button>
-                <button class="btn ghosty" onclick="declineIncoming()">Từ chối</button>
-              </div>
+            <div class="nearby" style="margin-top:14px"><div class="title-md">Nhận</div><div class="sp"></div>
+              <button class="iconbtn" title="Lịch sử" onclick="openHistory()"><span class="mi">history</span></button>
+              <button class="iconbtn" title="Thông tin" onclick="toggleInfo()"><span class="mi">info</span></button>
             </div>
 
-            <div class="sect-sm">Nhận gần đây</div>
-            <div class="card" id="recentList" style="padding:6px 15px">
-              <div class="rrow"><span class="mi fic">image</span><div><div class="nm">IMG_20261123_102211.jpg</div><div class="mt">từ DESKTOP-JHONSR2 · 2.4 MB</div></div><span class="st">10:22 ✔</span></div>
-              <div class="rrow"><span class="mi fic">description</span><div><div class="nm">bao-cao-tuan.pdf</div><div class="mt">từ DESKTOP-JHONSR2 · 860 KB</div></div><span class="st">09:41 ✔</span></div>
-              <div class="rrow"><span class="mi fic">folder_zip</span><div><div class="nm">tai-lieu-du-an.zip</div><div class="mt">từ DESKTOP-JHONSR2 · 48 MB</div></div><span class="st">08:15 ✔</span></div>
+            <div class="card" id="infoBox" style="display:none; margin-top:10px; background:#232b3a">
+              <table style="font-size:14px; border-collapse:collapse">
+                <tr><td style="padding:3px 20px 3px 0; color:#c7d5ee">Tên máy</td><td>Z2467</td></tr>
+                <tr><td style="padding:3px 20px 3px 0; color:#c7d5ee">IP</td><td>192.168.1.8</td></tr>
+                <tr><td style="padding:3px 20px 3px 0; color:#c7d5ee">Cổng</td><td>53317</td></tr>
+              </table>
             </div>
 
-            <div class="card histrow" style="margin-top:12px" onclick="openHistory()">
-              <span class="mi">history</span>
-              <div><div class="t">Lịch sử</div><div class="s">Xem tất cả tập tin đã nhận</div></div>
-              <span class="mi arr">chevron_right</span>
+            <div style="text-align:center; padding:16px 0 4px">
+              <div class="logo" style="width:72px; height:72px; margin:0 auto"><i style="width:32px; height:32px"></i></div>
+              <div class="mealias" style="font-size:34px; margin-top:10px">Z2467</div>
+              <div class="meid" style="font-size:18px">#49</div>
+              <button class="outlinebtn" onclick="toast('Nhận qua liên kết (demo)')"><span class="mi">language</span>Nhận qua liên kết</button>
             </div>
           </div>
 
-          <div class="appver">LocalSend 1.19.5 · Demo giao diện v3</div>
+          <div class="appver">LocalSend 1.19.5 · Demo giao diện v4</div>
         </div>
 
         <div class="content" id="tab-sync" style="display:none">
@@ -246,28 +234,49 @@
         </div>
       </div>
 
-      <!-- ===== LỊCH SỬ TOÀN MÀN HÌNH ===== -->
+      <!-- ===== LỊCH SỬ — đúng ReceiveHistoryPage gốc ===== -->
       <div class="screenview" id="view-history">
         <div class="appbar">
           <button class="iconbtn" onclick="showHome()"><span class="mi">arrow_back</span></button>
-          <div class="ttl">Lịch sử</div><div class="sp"></div>
-          <button class="iconbtn" onclick="toast('Tuỳ chọn lịch sử (demo)')"><span class="mi">more_vert</span></button>
+          <div class="ttl">Lịch sử</div>
         </div>
         <div class="content">
-          <div class="daylabel">HÔM NAY · 23/11/2026</div>
-          <div class="card" style="padding:6px 15px">
-            <div class="rrow"><span class="mi fic">image</span><div><div class="nm">Screenshot_20261123-113902.png</div><div class="mt">từ DESKTOP-JHONSR2 · 1.7 MB</div></div><span class="st">11:39 ✔</span></div>
-            <div class="rrow"><span class="mi fic">image</span><div><div class="nm">IMG_20261123_102211.jpg</div><div class="mt">từ DESKTOP-JHONSR2 · 2.4 MB</div></div><span class="st">10:22 ✔</span></div>
-            <div class="rrow"><span class="mi fic">description</span><div><div class="nm">bao-cao-tuan.pdf</div><div class="mt">từ DESKTOP-JHONSR2 · 860 KB</div></div><span class="st">09:41 ✔</span></div>
-            <div class="rrow"><span class="mi fic">folder_zip</span><div><div class="nm">tai-lieu-du-an.zip</div><div class="mt">từ DESKTOP-JHONSR2 · 48 MB</div></div><span class="st">08:15 ✔</span></div>
+          <div style="display:flex; gap:14px; margin-top:14px">
+            <button class="btn" style="background:var(--card); color:#fff; flex:none; padding:9px 16px" onclick="toast('Mở thư mục chứa file đã nhận (demo)')"><span class="mi" style="font-size:19px">folder</span> Mở thư mục</button>
+            <button class="btn" style="background:var(--card); color:#fff; flex:none; padding:9px 16px" onclick="toast('Xoá lịch sử (demo)')"><span class="mi" style="font-size:19px">delete</span> Xóa lịch sử</button>
           </div>
-          <div class="daylabel">HÔM QUA · 22/11/2026</div>
-          <div class="card" style="padding:6px 15px">
-            <div class="rrow"><span class="mi fic">audiotrack</span><div><div class="nm">ghi-am-hop.m4a</div><div class="mt">từ MyOS Phone · 5.1 MB</div></div><span class="st">21:07 ✔</span></div>
-            <div class="rrow"><span class="mi fic">movie</span><div><div class="nm">quay-man-hinh.mp4</div><div class="mt">từ DESKTOP-JHONSR2 · 22 MB</div></div><span class="st">18:52 ✔</span></div>
-            <div class="rrow"><span class="mi fic">description</span><div><div class="nm">hop-dong-v2.docx</div><div class="mt">từ DESKTOP-JHONSR2 · 320 KB</div></div><span class="st">15:30 ✔</span></div>
+          <div style="margin-top:20px" id="histList">
+            <div class="rrow" style="padding-top:6px"><span class="mi fic" style="color:#cfe0fb">image</span><div style="min-width:0"><div class="nm" style="max-width:230px; font-size:16px; font-weight:400">Screenshot_20261123-113902.png</div><div class="mt" style="color:#8a97ad">11:39 - 1.7 MB - DESKTOP-JHONSR2</div></div><button class="iconbtn" style="margin-left:auto"><span class="mi">more_vert</span></button></div>
+            <div class="rrow"><span class="mi fic" style="color:#cfe0fb">image</span><div style="min-width:0"><div class="nm" style="max-width:230px; font-size:16px; font-weight:400">IMG_20261123_102211.jpg</div><div class="mt" style="color:#8a97ad">10:22 - 2.4 MB - DESKTOP-JHONSR2</div></div><button class="iconbtn" style="margin-left:auto"><span class="mi">more_vert</span></button></div>
+            <div class="rrow"><span class="mi fic" style="color:#cfe0fb">description</span><div style="min-width:0"><div class="nm" style="max-width:230px; font-size:16px; font-weight:400">bao-cao-tuan.pdf</div><div class="mt" style="color:#8a97ad">09:41 - 860 KB - DESKTOP-JHONSR2</div></div><button class="iconbtn" style="margin-left:auto"><span class="mi">more_vert</span></button></div>
+            <div class="rrow"><span class="mi fic" style="color:#cfe0fb">folder_zip</span><div style="min-width:0"><div class="nm" style="max-width:230px; font-size:16px; font-weight:400">tai-lieu-du-an.zip</div><div class="mt" style="color:#8a97ad">08:15 - 48 MB - DESKTOP-JHONSR2</div></div><button class="iconbtn" style="margin-left:auto"><span class="mi">more_vert</span></button></div>
           </div>
-          <p style="text-align:center; color:var(--muted); font-size:12px; margin:16px 0">Trang này = trang lịch sử nhận hiện tại, giữ nguyên —<br>chỉ đổi lối vào thành dòng “Lịch sử” ở Trang chủ.</p>
+          <p style="text-align:center; color:var(--muted); font-size:12px; margin:16px 0">Trang này = ReceiveHistoryPage hiện tại, giữ nguyên.</p>
+        </div>
+      </div>
+
+      <!-- ===== TRANG NHẬN FILE — đúng ReceivePage gốc ===== -->
+      <div class="screenview" id="view-receive">
+        <div class="content" style="display:flex; flex-direction:column; padding:30px 20px 24px">
+          <div style="flex:1; display:flex; flex-direction:column; justify-content:space-evenly; text-align:center">
+            <div>
+              <span class="mi" style="font-size:64px">laptop</span>
+              <div style="font-size:40px; margin-top:10px">DESKTOP-JHONSR2</div>
+              <div style="margin-top:10px"><span class="dbadge" style="background:#d3e3fd; color:#1c4583; font-weight:600">Windows</span></div>
+            </div>
+            <div>
+              <div style="font-size:20px">Muốn gửi cho bạn 1 tập tin</div>
+              <div style="font-size:14px; color:#c7d5ee; margin-top:8px">Screenshot_20261123-113902.png · 1.7 MB</div>
+              <div style="margin-top:12px; display:flex; justify-content:center; gap:6px">
+                <button class="textbtn" style="margin:0; color:#e2e8f5" onclick="toast('Kiểm tra dấu vân tay (demo)')"><span class="mi" style="font-size:19px">verified_user</span> Kiểm tra</button>
+                <button class="textbtn" style="margin:0; color:#e2e8f5" onclick="toast('Tùy chọn nhận (demo)')"><span class="mi" style="font-size:19px">settings</span> Tùy chọn</button>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:center; gap:20px">
+            <button class="btn" style="background:#b3261e; color:#fff; flex:none; padding:10px 22px" onclick="declineReceive()"><span class="mi" style="font-size:19px">close</span> Từ chối</button>
+            <button class="btn" style="background:var(--primary); color:#0a2a5e; flex:none; padding:10px 22px" onclick="acceptReceive()"><span class="mi" style="font-size:19px">check_circle</span> Chấp nhận</button>
+          </div>
         </div>
       </div>
 
@@ -283,8 +292,12 @@
   function switchTab(name){
     ['home','sync','settings'].forEach(n=>{ $('tab-'+n).style.display = n===name?'block':'none'; $('tabbtn-'+n).classList.toggle('active', n===name); });
   }
-  function openHistory(){ $('view-main').classList.remove('active'); $('view-history').classList.add('active'); $('vb-home').classList.remove('active'); $('vb-hist').classList.add('active'); }
-  function showHome(){ $('view-history').classList.remove('active'); $('view-main').classList.add('active'); $('vb-hist').classList.remove('active'); $('vb-home').classList.add('active'); }
+  function openHistory(){ $('view-main').classList.remove('active'); $('view-receive').classList.remove('active'); $('view-history').classList.add('active'); $('vb-home').classList.remove('active'); $('vb-hist').classList.add('active'); }
+  function openReceivePage(){ $('view-main').classList.remove('active'); $('view-history').classList.remove('active'); $('view-receive').classList.add('active'); }
+  function showHome(){ $('view-history').classList.remove('active'); $('view-receive').classList.remove('active'); $('view-main').classList.add('active'); $('vb-hist').classList.remove('active'); $('vb-home').classList.add('active'); }
+  function toggleInfo(){ const b=$('infoBox'); b.style.display = b.style.display==='none' ? 'block' : 'none'; }
+  function acceptReceive(){ showHome(); toast('✔ Đã chấp nhận — app chuyển sang màn hình tiến trình nhận (demo)'); }
+  function declineReceive(){ showHome(); toast('Đã từ chối phiên nhận'); }
   function acceptIncoming(){
     $('incbtns').style.display='none'; let pct=0;
     const iv=setInterval(()=>{ pct=Math.min(100, pct+Math.random()*22); $('incbar').style.width=pct+'%'; $('incmeta').textContent='Đang nhận… '+Math.floor(pct)+'% ('+(1.7*pct/100).toFixed(1)+' MB / 1.7 MB)';
