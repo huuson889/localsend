@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demo UI — Trang chủ gộp Nhận + Gửi (LocalSend)</title>
+<style>
+  :root{
+    --teal:#2bb7a6; --teal-dark:#1f8f80; --bg:#0d1514; --panel:#16211f;
+    --card:#1c2a27; --card2:#22332f; --line:#2c423c; --text:#e8f2f0; --muted:#9db8b2;
+    --amber:#f5b14c; --red:#ef6a6a; --green:#43d68a;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  body{margin:0; font-family:"Segoe UI", system-ui, -apple-system, Roboto, sans-serif; background:radial-gradient(1200px 800px at 20% 0%, #14302a 0%, var(--bg) 55%); color:var(--text); min-height:100vh;}
+  .layout{display:flex; gap:36px; max-width:1180px; margin:0 auto; padding:32px 20px 48px; flex-wrap:wrap; justify-content:center;}
+
+  /* ---------- side panel ---------- */
+  .side{width:380px; max-width:92vw;}
+  .side h1{font-size:26px; margin:6px 0 6px; line-height:1.25}
+  .side .sub{color:var(--muted); font-size:14.5px; line-height:1.55; margin-bottom:18px}
+  .badge{display:inline-block; background:rgba(43,183,166,.15); color:var(--teal); border:1px solid rgba(43,183,166,.4); padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600}
+  .point{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin-bottom:12px}
+  .point b{color:#fff} .point p{margin:5px 0 0; color:var(--muted); font-size:13.5px; line-height:1.55}
+  .point .num{display:inline-flex; width:22px; height:22px; border-radius:50%; background:var(--teal); color:#06231f; font-weight:800; font-size:13px; align-items:center; justify-content:center; margin-right:8px}
+  .viewbtns{display:flex; gap:10px; margin:16px 0 6px; flex-wrap:wrap}
+  .viewbtns button{cursor:pointer; border:1px solid var(--line); background:var(--card); color:var(--text); padding:9px 14px; border-radius:10px; font-size:13.5px; font-weight:600}
+  .viewbtns button.active{background:var(--teal); color:#06231f; border-color:var(--teal)}
+  .hint{font-size:12.5px; color:var(--muted); line-height:1.6}
+
+  /* ---------- phone ---------- */
+  .phone{width:392px; max-width:94vw; height:820px; background:#050807; border-radius:44px; padding:11px; box-shadow:0 30px 80px rgba(0,0,0,.55), 0 0 0 2px #233}
+  .screen{position:relative; background:#101716; border-radius:34px; height:100%; overflow:hidden; display:flex; flex-direction:column}
+  .notch{position:absolute; top:9px; left:50%; transform:translateX(-50%); width:110px; height:22px; background:#050807; border-radius:12px; z-index:5}
+  .statusbar{display:flex; justify-content:space-between; padding:12px 22px 4px; font-size:12.5px; color:#cfe3de}
+  .appbar{display:flex; align-items:center; gap:10px; padding:10px 18px 8px;}
+  .logo{width:30px; height:30px; border-radius:9px; background:linear-gradient(135deg,var(--teal),#57d9c5); display:flex; align-items:center; justify-content:center; font-size:17px}
+  .appbar .title{font-size:19px; font-weight:700}
+  .appbar .sp{flex:1}
+  .iconbtn{width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:transparent; border:none; color:#cfe3de; cursor:pointer; font-size:17px}
+  .iconbtn:hover{background:rgba(255,255,255,.06)}
+  .content{flex:1; overflow-y:auto; padding:4px 16px 14px; scrollbar-width:none}
+  .content::-webkit-scrollbar{display:none}
+
+  .sect{display:flex; align-items:center; margin:16px 2px 9px}
+  .sect h2{font-size:15px; margin:0; letter-spacing:.2px}
+  .sect .sp{flex:1}
+  .pill{font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px}
+  .pill.on{background:rgba(67,214,138,.16); color:var(--green); border:1px solid rgba(67,214,138,.4)}
+  .pill.dim{background:rgba(255,255,255,.06); color:var(--muted); border:1px solid var(--line)}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:16px; padding:12px 14px; margin-bottom:10px}
+  .quickrow{display:grid; grid-template-columns:repeat(4,1fr); gap:9px; margin-bottom:4px}
+  .quick{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:11px 4px 9px; text-align:center; cursor:pointer}
+  .quick:hover{border-color:var(--teal)}
+  .quick .ic{font-size:20px} .quick .lb{font-size:11.5px; color:var(--muted); margin-top:4px}
+  .dev{display:flex; align-items:center; gap:12px; padding:10px 6px; border-radius:12px; cursor:pointer}
+  .dev + .dev{border-top:1px solid rgba(255,255,255,.05)}
+  .dev:hover{background:rgba(255,255,255,.035)}
+  .dev.sel{background:rgba(43,183,166,.10); outline:1px solid rgba(43,183,166,.35)}
+  .dev .dic{width:42px; height:42px; border-radius:12px; background:var(--card2); display:flex; align-items:center; justify-content:center; font-size:21px}
+  .dev .nm{font-size:14.5px; font-weight:600} .dev .ip{font-size:12px; color:var(--muted)}
+  .dev .heart{margin-left:auto; font-size:17px; color:#5f7a73; background:none;border:none;cursor:pointer}
+  .dev .heart.fav{color:#ff7d9c}
+  .dev .go{color:var(--teal); font-size:12px; font-weight:700}
+  .emptyfile{display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px}
+  .btn{cursor:pointer; border:none; border-radius:11px; padding:9px 15px; font-size:13.5px; font-weight:700}
+  .btn.primary{background:var(--teal); color:#06231f}
+  .btn.primary:hover{background:#35c9b4}
+  .btn.ghost{background:rgba(255,255,255,.06); color:var(--text); border:1px solid var(--line)}
+  .btn.danger{background:rgba(239,106,106,.14); color:var(--red); border:1px solid rgba(239,106,106,.35)}
+
+  .me{display:flex; align-items:center; gap:12px}
+  .me .avatar{width:42px; height:42px; border-radius:50%; background:linear-gradient(135deg,#3b6fe0,#7aa5ff); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px}
+  .me .nm{font-size:14.5px; font-weight:600} .me .ip{font-size:12px; color:var(--muted)}
+  .copy{margin-left:auto; font-size:11.5px; color:var(--teal); background:none; border:1px solid rgba(43,183,166,.4); border-radius:8px; padding:5px 9px; cursor:pointer}
+
+  .incoming{border-color:rgba(245,177,76,.55); background:linear-gradient(180deg, rgba(245,177,76,.09), rgba(245,177,76,.02)), var(--card)}
+  .incoming .from{font-size:13px; color:var(--amber); font-weight:700}
+  .incoming .fname{font-size:14.5px; font-weight:600; margin-top:3px; word-break:break-all}
+  .incoming .meta{font-size:12px; color:var(--muted); margin-top:2px}
+  .bar{height:7px; background:rgba(255,255,255,.09); border-radius:99px; overflow:hidden; margin:11px 0 4px}
+  .bar > div{height:100%; width:0%; background:var(--amber); border-radius:99px; transition:width .25s}
+  .incbtns{display:flex; gap:9px; margin-top:10px}
+  .incbtns .btn{flex:1}
+
+  .recent{display:flex; align-items:center; gap:11px; padding:9px 4px}
+  .recent + .recent{border-top:1px solid rgba(255,255,255,.05)}
+  .recent .fic{width:38px; height:38px; border-radius:10px; background:var(--card2); display:flex; align-items:center; justify-content:center; font-size:18px}
+  .recent .nm{font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:190px}
+  .recent .mt{font-size:11.5px; color:var(--muted)}
+  .recent .st{margin-left:auto; font-size:11px; font-weight:700}
+  .st.ok{color:var(--green)} .st.from{color:var(--muted); font-weight:500; text-align:right}
+  .historybtn{width:100%; display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; border-radius:13px; background:rgba(43,183,166,.10); border:1px solid rgba(43,183,166,.45); color:var(--teal); font-weight:700; font-size:14px; cursor:pointer}
+  .historybtn:hover{background:rgba(43,183,166,.18)}
+  .recvwrap{border:1px dashed rgba(43,183,166,.35); border-radius:18px; padding:4px 10px 12px; margin-top:18px; position:relative}
+  .recvtag{position:absolute; top:-10px; left:14px; background:#101716; padding:0 8px; font-size:11px; color:var(--teal); font-weight:700; letter-spacing:.4px}
+
+  /* bottom nav */
+  .tabbar{display:flex; border-top:1px solid var(--line); background:#0c1211; padding:8px 10px calc(10px + env(safe-area-inset-bottom))}
+  .tab{flex:1; background:none; border:none; color:#7e978f; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:3px; font-size:11.5px; padding:5px 0; border-radius:12px}
+  .tab .tic{font-size:21px}
+  .tab.active{color:var(--teal); font-weight:700}
+
+  /* history screen */
+  .screenview{display:none; flex-direction:column; height:100%}
+  .screenview.active{display:flex}
+  .search{margin:8px 16px 4px; background:var(--card); border:1px solid var(--line); border-radius:11px; padding:9px 12px; color:var(--muted); font-size:13px; display:flex; gap:8px; align-items:center}
+  .daylabel{font-size:12px; color:var(--muted); font-weight:700; margin:14px 4px 6px; letter-spacing:.4px}
+  .toast{position:absolute; left:50%; bottom:92px; transform:translateX(-50%) translateY(20px); background:#e9f6f2; color:#0a2420; font-size:13px; font-weight:600; padding:10px 16px; border-radius:999px; opacity:0; pointer-events:none; transition:.3s; z-index:9; box-shadow:0 10px 30px rgba(0,0,0,.4); white-space:nowrap}
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+  .placeholder{color:var(--muted); font-size:13.5px; line-height:1.7; text-align:center; padding:46px 30px}
+  .placeholder .big{font-size:44px; display:block; margin-bottom:12px}
+  @media (max-width:860px){ .side{order:2} .phone{order:1} }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- ============ SIDE PANEL ============ -->
+  <div class="side">
+    <span class="badge">DEMO UI · CHƯA ÁP DỤNG VÀO APP</span>
+    <h1>Gộp Nhận vào Gửi → đổi tên thành “Trang chủ”</h1>
+    <p class="sub">Đây là mô hình giao diện tĩnh để duyệt trước. Bấm thử được: chọn thiết bị, Chấp nhận/Từ chối phiên nhận, mở Lịch sử toàn màn hình, chuyển 3 tab dưới cùng.</p>
+
+    <div class="point"><p><span class="num">1</span><b>Tab “Gửi” → “Trang chủ”</b></p>
+      <p>Thanh tab còn 3 mục: <b>Trang chủ · Đồng bộ cặp · Cài đặt</b>. Mở app là vào Trang chủ, thấy cả gửi lẫn nhận.</p></div>
+
+    <div class="point"><p><span class="num">2</span><b>Phần Nhận nằm ở 1/3 dưới, cuộn cùng trang</b></p>
+      <p>Gồm: trạng thái máy này (tên + IP), thẻ phiên đang nhận (chấp nhận/từ chối ngay tại chỗ), và 3–5 mục nhận gần nhất. Không dùng khung cố định để tránh “cuộn trong cuộn”.</p></div>
+
+    <div class="point"><p><span class="num">3</span><b>Nút “Lịch sử” → toàn màn hình như hiện tại</b></p>
+      <p>Trang lịch sử giữ nguyên như màn hình Nhận cũ (nhóm theo ngày, tìm kiếm, mở/chia sẻ file). Từ Trang chủ chỉ là lối tắt vào.</p></div>
+
+    <div class="viewbtns">
+      <button id="vb-home" class="active" onclick="showHome()">🏠 Xem Trang chủ</button>
+      <button id="vb-hist" onclick="openHistory()">🕘 Xem Lịch sử toàn màn hình</button>
+    </div>
+    <p class="hint">Gợi ý thao tác thử: ở thẻ vàng “Phiên nhận đến” bấm <b>Chấp nhận</b> → thanh tiến trình chạy → file tự nhảy xuống mục “Nhận gần đây” + toast xác nhận. Bấm <b>Lịch sử</b> ở cuối phần Nhận để mở trang toàn màn hình, nút ← quay lại.</p>
+  </div>
+
+  <!-- ============ PHONE ============ -->
+  <div class="phone">
+    <div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>11:39</span><span>📶 📡 🔋 69%</span></div>
+
+      <!-- ===== VIEW: HOME (Trang chủ) ===== -->
+      <div class="screenview active" id="view-main">
+        <div class="appbar">
+          <div class="logo">🛜</div><div class="title" id="maintitle">Trang chủ</div>
+          <div class="sp"></div>
+          <button class="iconbtn" title="Làm mới thiết bị" onclick="toast('Đang tìm thiết bị…')">↻</button>
+          <button class="iconbtn" title="Menu">⋮</button>
+        </div>
+
+        <!-- TAB CONTENT: HOME -->
+        <div class="content" id="tab-home">
+          <div class="sect"><h2>📤 Gửi</h2><div class="sp"></div><span class="pill dim">3 thiết bị gần đây</span></div>
+          <div class="quickrow">
+            <div class="quick" onclick="toast('Chọn tệp (demo)')"><div class="ic">📄</div><div class="lb">Tệp</div></div>
+            <div class="quick" onclick="toast('Chọn thư mục (demo)')"><div class="ic">📁</div><div class="lb">Thư mục</div></div>
+            <div class="quick" onclick="toast('Gửi văn bản (demo)')"><div class="ic">💬</div><div class="lb">Văn bản</div></div>
+            <div class="quick" onclick="toast('Gửi ảnh/video (demo)')"><div class="ic">🖼️</div><div class="lb">Ảnh/Video</div></div>
+          </div>
+
+          <div class="card">
+            <div class="dev sel" onclick="selectDev(this)">
+              <div class="dic">💻</div>
+              <div><div class="nm">LAPTOP-ASUS</div><div class="ip">192.168.1.5:53317 · Windows</div></div>
+              <button class="heart fav" onclick="event.stopPropagation(); this.classList.toggle('fav')">♥</button>
+              <span class="go">Gửi ›</span>
+            </div>
+            <div class="dev" onclick="selectDev(this)">
+              <div class="dic">📱</div>
+              <div><div class="nm">MyOS Phone</div><div class="ip">192.168.1.9:53317 · Android 15</div></div>
+              <button class="heart" onclick="event.stopPropagation(); this.classList.toggle('fav')">♥</button>
+              <span class="go">Gửi ›</span>
+            </div>
+            <div class="dev" onclick="selectDev(this)">
+              <div class="dic">🖥️</div>
+              <div><div class="nm">PC-PHONG-KHACH</div><div class="ip">192.168.1.20:53317 · Windows</div></div>
+              <button class="heart fav" onclick="event.stopPropagation(); this.classList.toggle('fav')">♥</button>
+              <span class="go">Gửi ›</span>
+            </div>
+          </div>
+
+          <div class="card emptyfile"><span>📎</span><span style="flex:1">Chưa chọn tệp nào</span><button class="btn ghost" onclick="toast('Chọn tệp (demo)')">Chọn tệp</button></div>
+
+          <!-- ===== RECEIVE (merged, lower third) ===== -->
+          <div class="recvwrap">
+            <span class="recvtag">PHẦN NHẬN · NẰM Ở 1/3 DƯỚI TRANG CHỦ</span>
+            <div class="sect"><h2>📥 Nhận</h2><div class="sp"></div><span class="pill on">● Sẵn sàng nhận</span></div>
+            <div class="card me">
+              <div class="avatar">P8</div>
+              <div><div class="nm">Máy này: Pixel 8</div><div class="ip">192.168.1.8:53317</div></div>
+              <button class="copy" onclick="toast('Đã copy địa chỉ máy này')">⧉ Copy IP</button>
+            </div>
+
+            <div class="card incoming" id="incomingCard">
+              <div class="from">⬇ PHIÊN NHẬN ĐẾN · từ LAPTOP-ASUS</div>
+              <div class="fname">Screenshot_20261123-113902.png</div>
+              <div class="meta">1 tệp · 1.7 MB · ảnh chụp màn hình (đồng bộ cặp)</div>
+              <div class="bar"><div id="incbar"></div></div>
+              <div class="meta" id="incmeta">Đang chờ bạn xác nhận…</div>
+              <div class="incbtns" id="incbtns">
+                <button class="btn primary" onclick="acceptIncoming()">✔ Chấp nhận</button>
+                <button class="btn danger" onclick="declineIncoming()">✖ Từ chối</button>
+              </div>
+            </div>
+
+            <div class="sect"><h2 style="font-size:13.5px">Nhận gần đây</h2></div>
+            <div class="card" id="recentList">
+              <div class="recent"><div class="fic">🖼️</div><div><div class="nm">IMG_20261123_102211.jpg</div><div class="mt">từ LAPTOP-ASUS · 2.4 MB</div></div><span class="st ok">Hôm nay 10:22</span></div>
+              <div class="recent"><div class="fic">📄</div><div><div class="nm">bao-cao-tuan.pdf</div><div class="mt">từ LAPTOP-ASUS · 860 KB</div></div><span class="st ok">Hôm nay 09:41</span></div>
+              <div class="recent"><div class="fic">🎵</div><div><div class="nm">ghi-am-hop.m4a</div><div class="mt">từ MyOS Phone · 5.1 MB</div></div><span class="st ok">Hôm qua 21:07</span></div>
+            </div>
+
+            <button class="historybtn" onclick="openHistory()">🕘 Lịch sử nhận — mở toàn màn hình ›</button>
+          </div>
+          <div style="height:8px"></div>
+        </div>
+
+        <!-- TAB CONTENT: SYNC (placeholder) -->
+        <div class="content" id="tab-sync" style="display:none">
+          <div class="placeholder"><span class="big">🔗</span>Tab <b>Đồng bộ cặp</b> giữ nguyên như hiện tại:<br>danh sách thiết bị đã ghép, bật/tắt clipboard / thư mục chung / ảnh chụp màn hình.<br><br>(Demo này chỉ tập trung vào Trang chủ.)</div>
+        </div>
+
+        <!-- TAB CONTENT: SETTINGS (placeholder) -->
+        <div class="content" id="tab-settings" style="display:none">
+          <div class="placeholder"><span class="big">⚙️</span>Tab <b>Cài đặt</b> giữ nguyên như hiện tại.</div>
+        </div>
+
+        <!-- BOTTOM NAV : 3 tabs -->
+        <div class="tabbar">
+          <button class="tab active" id="tabbtn-home" onclick="switchTab('home','Trang chủ')"><span class="tic">🏠</span>Trang chủ</button>
+          <button class="tab" id="tabbtn-sync" onclick="switchTab('sync','Đồng bộ cặp')"><span class="tic">🔗</span>Đồng bộ cặp</button>
+          <button class="tab" id="tabbtn-settings" onclick="switchTab('settings','Cài đặt')"><span class="tic">⚙️</span>Cài đặt</button>
+        </div>
+      </div>
+
+      <!-- ===== VIEW: HISTORY (full screen, như màn Nhận hiện tại) ===== -->
+      <div class="screenview" id="view-history">
+        <div class="appbar">
+          <button class="iconbtn" onclick="showHome()" title="Quay lại">←</button>
+          <div class="title">Lịch sử nhận</div>
+          <div class="sp"></div>
+          <button class="iconbtn" title="Tuỳ chọn">⋮</button>
+        </div>
+        <div class="search">🔍 <span>Tìm tệp đã nhận…</span></div>
+        <div class="content">
+          <div class="daylabel">HÔM NAY · 23/11</div>
+          <div class="card">
+            <div class="recent"><div class="fic">🖼️</div><div><div class="nm">Screenshot_20261123-113902.png</div><div class="mt">từ LAPTOP-ASUS · 1.7 MB</div></div><span class="st from">11:39<br>✔ Đã lưu</span></div>
+            <div class="recent"><div class="fic">🖼️</div><div><div class="nm">IMG_20261123_102211.jpg</div><div class="mt">từ LAPTOP-ASUS · 2.4 MB</div></div><span class="st from">10:22<br>✔ Đã lưu</span></div>
+            <div class="recent"><div class="fic">📄</div><div><div class="nm">bao-cao-tuan.pdf</div><div class="mt">từ LAPTOP-ASUS · 860 KB</div></div><span class="st from">09:41<br>✔ Đã lưu</span></div>
+            <div class="recent"><div class="fic">📦</div><div><div class="nm">tai-lieu-du-an.zip</div><div class="mt">từ PC-PHONG-KHACH · 48 MB</div></div><span class="st from">08:15<br>✔ Đã lưu</span></div>
+          </div>
+          <div class="daylabel">HÔM QUA · 22/11</div>
+          <div class="card">
+            <div class="recent"><div class="fic">🎵</div><div><div class="nm">ghi-am-hop.m4a</div><div class="mt">từ MyOS Phone · 5.1 MB</div></div><span class="st from">21:07<br>✔ Đã lưu</span></div>
+            <div class="recent"><div class="fic">🎬</div><div><div class="nm">quay-man-hinh.mp4</div><div class="mt">từ LAPTOP-ASUS · 22 MB</div></div><span class="st from">18:52<br>✔ Đã lưu</span></div>
+            <div class="recent"><div class="fic">📄</div><div><div class="nm">hop-dong-v2.docx</div><div class="mt">từ LAPTOP-ASUS · 320 KB</div></div><span class="st from">15:30<br>✔ Đã lưu</span></div>
+          </div>
+          <div class="daylabel">TRƯỚC ĐÓ</div>
+          <div class="card">
+            <div class="recent"><div class="fic">🖼️</div><div><div class="nm">anh-ky-niệm.png</div><div class="mt">từ MyOS Phone · 3.9 MB</div></div><span class="st from">20/11<br>✔ Đã lưu</span></div>
+            <div class="recent"><div class="fic">📄</div><div><div class="nm">ghi-chu.txt</div><div class="mt">từ PC-PHONG-KHACH · 4 KB</div></div><span class="st from">19/11<br>✔ Đã lưu</span></div>
+          </div>
+          <p style="text-align:center; color:var(--muted); font-size:12px; margin:14px 0 6px">Trang này = màn hình Nhận hiện tại, giữ nguyên 100%,<br>chỉ đổi cách vào: nút Lịch sử ở Trang chủ.</p>
+        </div>
+      </div>
+
+      <div class="toast" id="toast"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let toastTimer;
+  function toast(msg){
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.classList.remove('show'), 2400);
+  }
+  function switchTab(name, title){
+    ['home','sync','settings'].forEach(n=>{
+      $('tab-'+n).style.display = (n===name) ? 'block' : 'none';
+      $('tabbtn-'+n).classList.toggle('active', n===name);
+    });
+    $('maintitle').textContent = title;
+  }
+  function selectDev(el){
+    document.querySelectorAll('.dev').forEach(d=>d.classList.remove('sel'));
+    el.classList.add('sel');
+    toast('Đã chọn ' + el.querySelector('.nm').textContent + ' — bấm Gửi để gửi (demo)');
+  }
+  function openHistory(){
+    $('view-main').classList.remove('active'); $('view-history').classList.add('active');
+    $('vb-home').classList.remove('active'); $('vb-hist').classList.add('active');
+  }
+  function showHome(){
+    $('view-history').classList.remove('active'); $('view-main').classList.add('active');
+    $('vb-hist').classList.remove('active'); $('vb-home').classList.add('active');
+  }
+  function acceptIncoming(){
+    $('incbtns').style.display = 'none';
+    let pct = 0;
+    const iv = setInterval(()=>{
+      pct = Math.min(100, pct + Math.random()*22);
+      $('incbar').style.width = pct + '%';
+      $('incmeta').textContent = 'Đang nhận… ' + Math.floor(pct) + '% (' + (1.7*pct/100).toFixed(1) + ' MB / 1.7 MB)';
+      if(pct >= 100){
+        clearInterval(iv);
+        $('incmeta').textContent = '✔ Đã nhận xong · vừa xong';
+        $('incbar').style.background = 'var(--green)';
+        const item = document.createElement('div');
+        item.className = 'recent';
+        item.innerHTML = '<div class="fic">🖼️</div><div><div class="nm">Screenshot_20261123-113902.png</div><div class="mt">từ LAPTOP-ASUS · 1.7 MB</div></div><span class="st ok">Vừa xong</span>';
+        $('recentList').prepend(item);
+        toast('✔ Đã nhận Screenshot_20261123-113902.png');
+        setTimeout(()=>{ $('incomingCard').style.display='none'; }, 2600);
+      }
+    }, 220);
+  }
+  function declineIncoming(){
+    $('incomingCard').style.display = 'none';
+    toast('Đã từ chối phiên nhận');
+  }
+</script>
+</body>
+</html>
