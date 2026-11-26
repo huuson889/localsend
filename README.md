@@ -22,38 +22,39 @@
 
 LocalSend is a free, open-source app that allows you to securely share files and messages with nearby devices over your local network without needing an internet connection.
 
-## Fork: Đồng bộ theo cặp (Paired Sync)
+## Fork: Paired Sync
 
-> Đây là fork cá nhân của [localsend/localsend](https://github.com/localsend/localsend), bổ sung tính năng **đồng bộ tự động giữa các thiết bị đã ghép cặp tin cậy**. Mã nguồn gốc nằm ở branch `main`; toàn bộ tính năng thêm được phát triển trên branch riêng (xem bảng dưới) qua [PR #2](https://github.com/huuson889/localsend/pull/2).
+> This is a personal fork of [localsend/localsend](https://github.com/localsend/localsend) that adds **automatic sync between trusted, paired devices**. The upstream code lives on the `main` branch; all added features are developed on a separate branch (see the table below) in [PR #2](https://github.com/huuson889/localsend/pull/2).
 
-### Các branch
+### Branches
 
-| Branch | Vai trò |
+| Branch | Role |
 | --- | --- |
-| `main` | Mã gốc LocalSend (upstream). Đã gồm đợt paired-sync đầu tiên qua PR #1 đã merge. |
-| `arena/47011167-localsend` | **Branch phát triển hiện tại** — toàn bộ tính năng đồng bộ theo cặp bên dưới (PR #2, đang mở, chưa merge vào `main`). |
+| `main` | Upstream LocalSend code. Already includes the first paired-sync iteration via the merged PR #1. |
+| `arena/47011167-localsend` | **Current development branch** — all paired-sync features below ([PR #2](https://github.com/huuson889/localsend/pull/2), open, not yet merged into `main`). |
 
-Phiên bản mới nhất: **1.19.6**. Tải bản dựng sẵn (Android APK + Windows EXE, prerelease) tại [Releases](https://github.com/huuson889/localsend/releases) — tag dạng `v<version>-paired-sync`.
+Latest version: **1.19.6**. Prebuilt binaries (Android APK + Windows EXE, prereleases) are available on the [Releases](https://github.com/huuson889/localsend/releases) page — tags look like `v<version>-paired-sync`.
 
-### Tính năng thêm so với bản gốc
+### Features added on top of upstream
 
-- **Ghép cặp bằng mã PIN 6 số** giữa 2 máy (nút ♥ ở tab Gửi). Hỗ trợ **nhiều cặp độc lập**: A↔B và A↔C đồng bộ riêng, nội dung nhận từ một máy không tự chuyển tiếp sang máy khác.
-- **Đồng bộ clipboard hai chiều**: copy text hoặc hình ảnh là tự gửi sang máy đã cặp (trên Android: copy xong mở LocalSend một lần để app đọc clipboard).
-- **Tự động gửi ảnh chụp màn hình Android**: ảnh chụp mới tự bay sang máy đã cặp mà không cần copy (lấy từ thư viện ảnh, cần cấp quyền ảnh; bật riêng trong cài đặt).
-- **Thư mục chung đồng bộ hai chiều**: file mới/thay đổi trong thư mục đã chọn tự đồng bộ sang máy đã cặp, giữ nguyên thư mục con (không đồng bộ thao tác xóa).
-- **Công tắc tổng "Đồng bộ theo cặp"** ở đầu trang cài đặt Đồng bộ cặp: mặc định Bật khi đã có thiết bị ghép; tắt là dừng toàn bộ đồng bộ và từ chối im lặng các phiên sync gửi tới, bật lại chạy tiếp đúng cấu hình cũ.
-- **An toàn & chống spam**: chỉ đồng bộ khi cả 2 máy đã ghép cặp lẫn nhau *và* cùng bật tính năng; nội dung có từ trước lúc thiết lập không bị gửi (baseline); chỉ gửi khi máy kia đang online trong danh sách khám phá; các phiên nền chạy im lặng (không hộp thoại, không thông báo tiến trình).
+- **Pairing with a 6-digit PIN** between two devices (the ♥ button on the Send tab). Supports **multiple independent pairs**: A↔B and A↔C sync separately, and content received from one device is never forwarded to another.
+- **Two-way clipboard sync**: copying text or an image automatically sends it to the paired devices (on Android: copy, then open LocalSend once so the app can read the clipboard).
+- **Automatic Android screenshot sync**: new screenshots are sent to the paired devices without copying them first (picked up from the photo library, requires photo-access permission; separate opt-in toggle).
+- **Two-way shared folder sync**: new/changed files in the selected folder sync automatically to the paired devices, preserving subfolders (deletions are not synced).
+- **"Paired sync" master switch** at the top of the Paired Sync settings page: on by default once a device is paired; turning it off pauses all sync and silently declines incoming sync sessions, and turning it back on resumes with the previous per-feature configuration untouched.
+- **Windows Explorer context menu**: right-click files or folders and choose **"Send with LocalSend"** (plus the classic *Send to* entry), enabled from Settings → "Show LocalSend in context menu".
+- **Safety & anti-spam rules**: sync only happens when both devices paired each other *and* both enabled the same feature; content that existed before setup is never sent (baseline); sync is only attempted while the peer is discovered online; background sessions run silently (no dialogs, no progress notifications).
 
-Giới hạn hiện tại: clipboard text ≤ 16 KB, ảnh ≤ 8 MB; trên Android app cần dịch vụ nền (đã tích hợp) để đồng bộ khi ở chế độ nền.
+Current limits: clipboard text ≤ 16 KB, images ≤ 8 MB. On Android, an integrated foreground service keeps sync alive while the app is in the background.
 
-### Dùng nhanh
+### Quick start
 
-1. Hai máy cài cùng phiên bản từ [Releases](https://github.com/huuson889/localsend/releases), mở cùng mạng Wi-Fi/LAN.
-2. Ở tab **Gửi**, bấm ♥ trên máy kia và xác nhận cùng mã PIN 6 số trên cả 2 máy.
-3. Vào tab **Đồng bộ cặp**, bật các tính năng mong muốn (clipboard / thư mục chung / ảnh chụp màn hình) trên *cả 2 máy*.
-4. Copy, chụp màn hình hoặc thả file vào thư mục chung — nội dung tự sang máy kia.
+1. Install the same version from [Releases](https://github.com/huuson889/localsend/releases) on both devices, on the same Wi-Fi/LAN.
+2. On the **Send** tab, tap ♥ on the other device and confirm the same 6-digit PIN on both devices.
+3. Open the **Paired Sync** tab and enable the features you want (clipboard / shared folder / screenshots) on *both* devices.
+4. Copy something, take a screenshot, or drop a file into the shared folder — it appears on the other device automatically.
 
-- [Fork: Đồng bộ theo cặp (Paired Sync)](#fork-đồng-bộ-theo-cặp-paired-sync)
+- [Fork: Paired Sync](#fork-paired-sync)
 - [About](#about)
 - [Sponsors](#sponsors)
 - [Screenshots](#screenshots)
