@@ -16,14 +16,15 @@ import 'package:localsend_app/provider/device_info_provider.dart';
 import 'package:localsend_app/provider/network/nearby_devices_provider.dart';
 import 'package:localsend_app/provider/network/server/server_provider.dart';
 import 'package:localsend_app/provider/network/webrtc/signaling_provider.dart';
-import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
-import 'package:localsend_app/provider/sync/folder_sync_service.dart';
 import 'package:localsend_app/provider/persistence_provider.dart';
 // [FOSS_REMOVE_START]
 import 'package:localsend_app/provider/purchase_provider.dart';
 // [FOSS_REMOVE_END]
 import 'package:localsend_app/provider/selection/selected_sending_files_provider.dart';
 import 'package:localsend_app/provider/settings_provider.dart';
+import 'package:localsend_app/provider/sync/background_sync.dart';
+import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
+import 'package:localsend_app/provider/sync/folder_sync_service.dart';
 import 'package:localsend_app/provider/tv_provider.dart';
 import 'package:localsend_app/provider/version_provider.dart';
 import 'package:localsend_app/provider/window_dimensions_provider.dart';
@@ -99,6 +100,11 @@ Future<RefenaContainer> preInit(List<String> args) async {
 
   if (persistenceService.isFirstAppStart && !persistenceService.isPortableMode()) {
     await enableContextMenu();
+    if (checkPlatformIsDesktop()) {
+      // Fresh installs autostart hidden in the tray, so receiving and
+      // paired sync work right after login without opening the app first.
+      await enableAutoStart(startHidden: true);
+    }
   }
 
   await initI18n();
@@ -250,6 +256,8 @@ Future<void> postInit(BuildContext context, Ref ref, bool appStart) async {
   } catch (e) {
     _logger.warning('Starting sync services failed: $e');
   }
+  // Keep the Android process alive in the background while sync is active.
+  updateSyncBackgroundService(ref);
 
   // ignore: dead_code
   if (webRTCEnabled) {

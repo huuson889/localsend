@@ -16,27 +16,64 @@ class SyncSettingsService extends PureNotifier<SyncSettings> {
   SyncSettingsService(this._persistence);
 
   @override
-  SyncSettings init() => SyncSettings(
-    syncPeerFingerprint: _persistence.getSyncPeerFingerprint(),
-    clipboardSyncEnabled: _persistence.isClipboardSyncEnabled(),
-    folderSyncEnabled: _persistence.isFolderSyncEnabled(),
-    syncFolderPath: _persistence.getSyncFolderPath(),
-  );
-
-  Future<void> setSyncPeerFingerprint(String? fingerprint) async {
-    await _persistence.setSyncPeerFingerprint(fingerprint);
-    // Construct directly: copyWith cannot distinguish "keep" from "set null".
-    state = SyncSettings(
-      syncPeerFingerprint: fingerprint,
-      clipboardSyncEnabled: state.clipboardSyncEnabled,
-      folderSyncEnabled: state.folderSyncEnabled,
-      syncFolderPath: state.syncFolderPath,
+  SyncSettings init() {
+    final peers = _persistence.getSyncPeerFingerprints();
+    return SyncSettings(
+      pairedSyncEnabled: _persistence.isPairedSyncEnabled(),
+      syncPeerFingerprints: peers,
+      clipboardSyncEnabled: _persistence.isClipboardSyncEnabled(),
+      folderSyncEnabled: _persistence.isFolderSyncEnabled(),
+      syncFolderPath: _persistence.getSyncFolderPath(),
+      screenshotSyncEnabled: _persistence.isScreenshotSyncEnabled(),
+      clipboardConfirmedPeerFingerprints: _persistence.getSyncClipboardConfirmedFingerprints().toSet(),
+      folderConfirmedPeerFingerprints: _persistence.getSyncFolderConfirmedFingerprints().toSet(),
     );
+  }
+
+  /// Adds [fingerprint] to the paired sync peers (no-op if already paired).
+  /// Existing peers are kept: pairing is multi-device, each pair syncs
+  /// independently.
+  Future<void> addSyncPeerFingerprint(String fingerprint) async {
+    if (state.syncPeerFingerprints.contains(fingerprint)) {
+      return;
+    }
+    final peers = [...state.syncPeerFingerprints, fingerprint];
+    await _persistence.setSyncPeerFingerprints(peers);
+    state = state.copyWith(syncPeerFingerprints: peers);
+  }
+
+  /// Removes [fingerprint] from the paired sync peers, including its
+  /// per-feature confirmation state.
+  Future<void> removeSyncPeerFingerprint(String fingerprint) async {
+    if (!state.syncPeerFingerprints.contains(fingerprint)) {
+      return;
+    }
+    final peers = state.syncPeerFingerprints.where((e) => e != fingerprint).toList();
+    final clipboardConfirmed = state.clipboardConfirmedPeerFingerprints.where((e) => e != fingerprint).toSet();
+    final folderConfirmed = state.folderConfirmedPeerFingerprints.where((e) => e != fingerprint).toSet();
+    await _persistence.setSyncPeerFingerprints(peers);
+    await _persistence.setSyncClipboardConfirmedFingerprints(clipboardConfirmed.toList());
+    await _persistence.setSyncFolderConfirmedFingerprints(folderConfirmed.toList());
+    state = state.copyWith(
+      syncPeerFingerprints: peers,
+      clipboardConfirmedPeerFingerprints: clipboardConfirmed,
+      folderConfirmedPeerFingerprints: folderConfirmed,
+    );
+  }
+
+  Future<void> setPairedSyncEnabled(bool enabled) async {
+    await _persistence.setPairedSyncEnabled(enabled);
+    state = state.copyWith(pairedSyncEnabled: enabled);
   }
 
   Future<void> setClipboardSyncEnabled(bool enabled) async {
     await _persistence.setClipboardSyncEnabled(enabled);
     state = state.copyWith(clipboardSyncEnabled: enabled);
+  }
+
+  Future<void> setScreenshotSyncEnabled(bool enabled) async {
+    await _persistence.setScreenshotSyncEnabled(enabled);
+    state = state.copyWith(screenshotSyncEnabled: enabled);
   }
 
   Future<void> setFolderSyncEnabled(bool enabled) async {
@@ -46,11 +83,40 @@ class SyncSettingsService extends PureNotifier<SyncSettings> {
 
   Future<void> setSyncFolderPath(String? path) async {
     await _persistence.setSyncFolderPath(path);
-    state = SyncSettings(
-      syncPeerFingerprint: state.syncPeerFingerprint,
-      clipboardSyncEnabled: state.clipboardSyncEnabled,
-      folderSyncEnabled: state.folderSyncEnabled,
-      syncFolderPath: path,
-    );
+    state = state.copyWith(syncFolderPath: path);
+  }
+
+  /// Records (or clears) the proof that [fingerprint] also enabled
+  /// clipboard sync back. Called when a clipboard sync is accepted by that
+  /// peer, when one is received from it, or when that peer rejects one.
+  Future<void> setClipboardPeerConfirmed(String fingerprint, bool confirmed) async {
+    final updated = {...state.clipboardConfirmedPeerFingerprints};
+    if (confirmed) {
+      updated.add(fingerprint);
+    } else {
+      updated.remove(fingerprint);
+    }
+    if (updated.length == state.clipboardConfirmedPeerFingerprints.length &&
+        updated.containsAll(state.clipboardConfirmedPeerFingerprints)) {
+      return;
+    }
+    await _persistence.setSyncClipboardConfirmedFingerprints(updated.toList());
+    state = state.copyWith(clipboardConfirmedPeerFingerprints: updated);
+  }
+
+  /// Same as [setClipboardPeerConfirmed], for folder sync.
+  Future<void> setFolderPeerConfirmed(String fingerprint, bool confirmed) async {
+    final updated = {...state.folderConfirmedPeerFingerprints};
+    if (confirmed) {
+      updated.add(fingerprint);
+    } else {
+      updated.remove(fingerprint);
+    }
+    if (updated.length == state.folderConfirmedPeerFingerprints.length &&
+        updated.containsAll(state.folderConfirmedPeerFingerprints)) {
+      return;
+    }
+    await _persistence.setSyncFolderConfirmedFingerprints(updated.toList());
+    state = state.copyWith(folderConfirmedPeerFingerprints: updated);
   }
 }

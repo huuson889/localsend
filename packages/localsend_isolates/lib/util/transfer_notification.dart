@@ -15,6 +15,10 @@ class TransferNotification {
   static final _transfers = <String, _Transfer>{};
   static NotificationStrings? _strings;
 
+  /// Notification content shown while background work holds the service via
+  /// [setKeepAlive]. Null while nothing holds it.
+  static ({String title, String text})? _keepAlive;
+
   /// Injects the translated strings. Must be called before the first transfer starts.
   /// The locale is pinned on app start, so one call is enough.
   static void init(NotificationStrings strings) {
@@ -48,6 +52,11 @@ class TransferNotification {
         text: _text(),
       );
     }
+
+    // Show the transfer content even when the service already runs for a
+    // keep-alive hold (start() is a no-op then). Forced, because a fast
+    // transfer may end before the next throttled update would land.
+    ForegroundService.updateNotification(title: _title(), text: _text(), force: true);
   }
 
   /// Reports the progress of a single transfer and refreshes the notification.
@@ -72,15 +81,51 @@ class TransferNotification {
   }
 
   /// Unregisters a transfer, stopping the service once the last one is gone.
+  /// While background work holds the service via [setKeepAlive], the service
+  /// keeps running and the notification switches back to the hold content.
   static void stop(String sessionId) {
     if (_transfers.remove(sessionId) == null) {
       return;
     }
 
     if (_transfers.isEmpty) {
-      ForegroundService.stop();
+      final keepAlive = _keepAlive;
+      if (keepAlive != null) {
+        // Forced: this restores the idle content after a transfer and must
+        // never be dropped by the update throttle (it would leave the
+        // finished transfer's progress on screen indefinitely).
+        ForegroundService.updateNotification(
+          title: keepAlive.title,
+          text: keepAlive.text,
+          force: true,
+        );
+      } else {
+        ForegroundService.stop();
+      }
     } else {
-      ForegroundService.updateNotification(title: _title(), text: _text());
+      ForegroundService.updateNotification(title: _title(), text: _text(), force: true);
+    }
+  }
+
+  /// Holds the foreground service so the process stays alive for background
+  /// work that has no transfers of its own (e.g. paired-device sync polling).
+  /// While a transfer runs, it takes over the notification as usual.
+  ///
+  /// Must be called while the app is in the foreground: Android 12+ rejects
+  /// starting a foreground service from the background.
+  static void setKeepAlive({required String title, required String text}) {
+    _keepAlive = (title: title, text: text);
+    if (_transfers.isEmpty) {
+      ForegroundService.start(channelName: title, title: title, text: text);
+    }
+  }
+
+  /// Releases the hold taken by [setKeepAlive]. The service stops unless a
+  /// transfer is currently running.
+  static void clearKeepAlive() {
+    _keepAlive = null;
+    if (_transfers.isEmpty) {
+      ForegroundService.stop();
     }
   }
 

@@ -44,6 +44,7 @@ class SettingsTab extends StatelessWidget {
       provider: (ref) => settingsTabControllerProvider,
       builder: (context, vm) {
         final ref = context.ref;
+        final isVi = Localizations.localeOf(context).languageCode == 'vi';
         return ResponsiveListView(
           padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 40),
           children: [
@@ -52,6 +53,18 @@ class SettingsTab extends StatelessWidget {
               child: Text(t.settingsTab.title, style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
             ),
             const SizedBox(height: 30),
+            _SettingsSection(
+              title: isVi ? 'Đồng bộ theo cặp' : 'Paired Sync',
+              children: [
+                _ButtonEntry(
+                  label: isVi ? 'Đồng bộ clipboard + thư mục chung' : 'Clipboard + shared folder sync',
+                  buttonLabel: t.general.open,
+                  onTap: () async {
+                    await context.push(() => const SyncSettingsPage());
+                  },
+                ),
+              ],
+            ),
             _SettingsSection(
               title: t.settingsTab.general.title,
               children: [
@@ -293,18 +306,6 @@ class SettingsTab extends StatelessWidget {
                   ),
               ],
             ),
-            _SettingsSection(
-              title: 'Paired Sync',
-              children: [
-                _ButtonEntry(
-                  label: 'Clipboard + shared folder sync',
-                  buttonLabel: t.general.open,
-                  onTap: () async {
-                    await context.push(() => const SyncSettingsPage());
-                  },
-                ),
-              ],
-            ),
             if (vm.advanced)
               _SettingsSection(
                 title: t.settingsTab.send.title,
@@ -395,36 +396,36 @@ class SettingsTab extends StatelessWidget {
                       vm.aliasController.text = alias;
                       await ref.notifier(settingsProvider).setAlias(alias);
                     },
-                    actions: [
-                      Tooltip(
-                        message: t.settingsTab.network.generateRandomAlias,
-                        child: IconButton(
-                          onPressed: () {
-                            final randomAlias = generateRandomAlias();
-                            vm.aliasController.text = randomAlias;
-                          },
-                          icon: const Icon(Icons.casino),
-                        ),
+                    actions: const [],
+                  ),
+                ),
+                _SettingsEntry(
+                  label: isVi ? 'Tuỳ chọn biệt danh' : 'Alias options',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _CurrentDeviceNameText(isVi: isVi),
+                      const SizedBox(height: 4),
+                      TextButton(
+                        onPressed: () async {
+                          final systemName = await getDeviceName();
+                          if (systemName == null || systemName.trim().isEmpty) {
+                            return;
+                          }
+                          vm.aliasController.text = systemName.trim();
+                          await ref.notifier(settingsProvider).setAlias(systemName.trim());
+                        },
+                        child: Text(t.settingsTab.network.useSystemName, textAlign: TextAlign.center),
                       ),
-                      Builder(
-                        builder: (dialogContext) => Tooltip(
-                          message: t.settingsTab.network.useSystemName,
-                          child: IconButton(
-                            onPressed: () async {
-                              final systemName = await getDeviceName();
-                              if (systemName == null || !dialogContext.mounted) {
-                                return;
-                              }
-
-                              final isDialogOpen = ModalRoute.of(dialogContext)?.isCurrent ?? false;
-                              if (!isDialogOpen) {
-                                return;
-                              }
-
-                              vm.aliasController.text = systemName;
-                            },
-                            icon: const Icon(Icons.desktop_windows_rounded),
-                          ),
+                      TextButton(
+                        onPressed: () async {
+                          final randomAlias = generateRandomAlias();
+                          vm.aliasController.text = randomAlias;
+                          await ref.notifier(settingsProvider).setAlias(randomAlias);
+                        },
+                        child: Text(
+                          isVi ? 'Biệt danh ngẫu nhiên (tuỳ chọn)' : '${t.settingsTab.network.generateRandomAlias} (optional)',
+                          textAlign: TextAlign.center,
                         ),
                       ),
                     ],
@@ -634,6 +635,38 @@ class SettingsTab extends StatelessWidget {
             ),
             const SizedBox(height: 80),
           ],
+        );
+      },
+    );
+  }
+}
+
+/// Shows the device name the "use system name" alias option would apply,
+/// so the user can see beforehand what the default alias resolves to
+/// (e.g. the phone's device name), instead of guessing.
+class _CurrentDeviceNameText extends StatefulWidget {
+  final bool isVi;
+
+  const _CurrentDeviceNameText({required this.isVi});
+
+  @override
+  State<_CurrentDeviceNameText> createState() => _CurrentDeviceNameTextState();
+}
+
+class _CurrentDeviceNameTextState extends State<_CurrentDeviceNameText> {
+  late final Future<String?> _deviceName = getDeviceName();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: _deviceName,
+      builder: (context, snapshot) {
+        final name = snapshot.data?.trim();
+        final label = widget.isVi ? 'Tên máy hiện tại' : 'Current device name';
+        return Text(
+          name == null || name.isEmpty ? '$label: —' : '$label: $name',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 12),
         );
       },
     );

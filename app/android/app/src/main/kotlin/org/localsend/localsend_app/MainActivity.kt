@@ -2,7 +2,10 @@ package org.localsend.localsend_app
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentResolver
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -12,13 +15,16 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.provider.Settings
 import android.webkit.MimeTypeMap
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -30,6 +36,10 @@ private const val REQUEST_CODE_PICK_DIRECTORY = 1
 private const val REQUEST_CODE_PICK_DIRECTORY_PATH = 2
 private const val REQUEST_CODE_PICK_FILE = 3
 private const val REQUEST_CODE_LOCAL_NETWORK = 4
+private const val REQUEST_CODE_MEDIA_IMAGES = 5
+private const val PERMISSION_READ_MEDIA_IMAGES = "android.permission.READ_MEDIA_IMAGES"
+private const val PERMISSION_READ_MEDIA_VISUAL_USER_SELECTED = "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+private const val PERMISSION_READ_EXTERNAL_STORAGE = "android.permission.READ_EXTERNAL_STORAGE"
 
 // Not available as a constant in compileSdk 36.
 private const val PERMISSION_ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
@@ -38,6 +48,7 @@ private const val API_LEVEL_ANDROID_17 = 37
 class MainActivity : FlutterActivity() {
     private var pendingResult: MethodChannel.Result? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private var pendingMediaPermissionResult: MethodChannel.Result? = null
 
     /// share_handler drops share intents arriving via onNewIntent while the Dart side
     /// is not subscribed to its media stream yet, which happens when this singleTask
@@ -131,6 +142,29 @@ class MainActivity : FlutterActivity() {
                     result.success(getDownloadsDirectory())
                 }
 
+                "listDirectoryFiles" -> handleListDirectoryFiles(call, result)
+
+                "getClipboardImage" -> handleGetClipboardImage(result)
+
+                "getClipboardImageDebug" -> handleGetClipboardImageDebug(result)
+
+                "hasMediaImagesPermission" -> result.success(hasMediaImagesPermission())
+
+                "requestMediaImagesPermission" -> {
+                    if (hasMediaImagesPermission()) {
+                        result.success(true)
+                    } else {
+                        pendingMediaPermissionResult = result
+                        requestPermissions(arrayOf(mediaImagesPermission()), REQUEST_CODE_MEDIA_IMAGES)
+                    }
+                }
+
+                "getLatestScreenshotId" -> result.success(latestScreenshotId())
+
+                "getLatestScreenshot" -> handleGetLatestScreenshot(call, result)
+
+                "writeClipboardImage" -> handleWriteClipboardImage(call, result)
+
                 "requestLocalNetworkPermission" -> {
                     if (hasLocalNetworkPermission()) {
                         result.success(true)
@@ -159,12 +193,262 @@ class MainActivity : FlutterActivity() {
             pendingPermissionResult?.success(grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)
             pendingPermissionResult = null
         }
+        if (requestCode == REQUEST_CODE_MEDIA_IMAGES) {
+            // Re-check instead of trusting grantResults: on Android 14+ the
+            // user may grant partial photo access instead of full access.
+            pendingMediaPermissionResult?.success(hasMediaImagesPermission())
+            pendingMediaPermissionResult = null
+        }
+    }
+
+    /// The runtime permission needed to watch for new screenshots in the
+    /// media store (used by paired-sync's auto-send-screenshots feature).
+    private fun mediaImagesPermission(): String {
+        return if (Build.VERSION.SDK_INT >= 33) PERMISSION_READ_MEDIA_IMAGES else PERMISSION_READ_EXTERNAL_STORAGE
+    }
+
+    private fun hasMediaImagesPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= 33) {
+            checkSelfPermission(PERMISSION_READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(PERMISSION_READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+        } else {
+            checkSelfPermission(PERMISSION_READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private data class ScreenshotInfo(val id: Long, val size: Long, val uri: Uri)
+
+    /// The newest image in a "Screenshots" folder of the media store, or
+    /// null when there is none (or no photo permission).
+    private fun latestScreenshot(): ScreenshotInfo? {
+        if (!hasMediaImagesPermission()) {
+            return null
+        }
+        val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val projection = mutableListOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.SIZE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            projection.add(MediaStore.Images.Media.RELATIVE_PATH)
+        } else {
+            @Suppress("DEPRECATION")
+            projection.add(MediaStore.Images.Media.DATA)
+        }
+        try {
+            contentResolver.query(collection, projection.toTypedArray(), null, null, "${MediaStore.Images.Media.DATE_ADDED} DESC")?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val sizeIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+                val pathIndex = cursor.getColumnIndexOrThrow(projection[2])
+                var scanned = 0
+                while (cursor.moveToNext() && scanned < 200) {
+                    scanned++
+                    val path = cursor.getString(pathIndex) ?: continue
+                    if (!path.contains("screenshots", ignoreCase = true)) {
+                        continue
+                    }
+                    val id = cursor.getLong(idIndex)
+                    return ScreenshotInfo(id, cursor.getLong(sizeIndex), ContentUris.withAppendedId(collection, id))
+                }
+            }
+        } catch (e: Exception) {
+            // No access (permission revoked mid-flight, OEM quirks): treat
+            // as "no screenshot" instead of crashing the poller.
+            return null
+        }
+        return null
+    }
+
+    /// ID of the newest screenshot, 0 when there is none, -1 without the
+    /// photo permission. Used to baseline (existing screenshots are not
+    /// sent when the feature is switched on).
+    private fun latestScreenshotId(): Long {
+        if (!hasMediaImagesPermission()) {
+            return -1
+        }
+        return latestScreenshot()?.id ?: 0
+    }
+
+    /// Returns the newest screenshot taken after [afterId] (exclusive),
+    /// with its bytes, so the Dart side can sync it like a clipboard image.
+    private fun handleGetLatestScreenshot(call: MethodCall, result: MethodChannel.Result) {
+        if (!hasMediaImagesPermission()) {
+            result.success(mapOf("status" to "no_permission"))
+            return
+        }
+        val afterId = (call.argument<Number>("afterId"))?.toLong() ?: 0L
+        val info = latestScreenshot()
+        if (info == null || info.id <= afterId) {
+            result.success(mapOf("status" to "none"))
+            return
+        }
+        val bytes = try {
+            contentResolver.openInputStream(info.uri)?.use { it.readBytes() }
+        } catch (e: Exception) {
+            null
+        }
+        if (bytes == null || bytes.isEmpty()) {
+            result.success(mapOf("status" to "none"))
+            return
+        }
+        result.success(mapOf("status" to "ok", "id" to info.id, "size" to info.size, "bytes" to bytes))
     }
 
     /// Absolute path of the shared "Download" directory (usually /storage/emulated/0/Download).
     @Suppress("DEPRECATION")
     private fun getDownloadsDirectory(): String {
         return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
+    }
+
+    /// Lists every file below a SAF directory tree, with paths relative to the tree root.
+    /// Folder sync stores the picked folder as a `content://` tree URI, which Dart
+    /// cannot scan with `dart:io`, so the periodic scan goes through this handler.
+    private fun handleListDirectoryFiles(call: MethodCall, result: MethodChannel.Result) {
+        val treeUriString = call.argument<String>("treeUri")
+        if (treeUriString.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENT", "Missing treeUri", null)
+            return
+        }
+
+        try {
+            val root = FastDocumentFile.fromTreeUri(this, Uri.parse(treeUriString))
+            val files = mutableListOf<Map<String, Any?>>()
+
+            fun walk(directory: FastDocumentFile, prefix: String) {
+                for (child in directory.listFiles()) {
+                    val relativePath = if (prefix.isEmpty()) child.name else "$prefix/${child.name}"
+                    if (child.isDirectory) {
+                        walk(child, relativePath)
+                    } else if (child.isFile) {
+                        files.add(
+                            mapOf(
+                                "relativePath" to relativePath,
+                                "uri" to child.uri.toString(),
+                                "size" to child.size,
+                                "lastModified" to child.lastModified,
+                            )
+                        )
+                    }
+                }
+            }
+
+            walk(root, "")
+            result.success(files)
+        } catch (e: Exception) {
+            result.error("LIST_FAILED", e.message ?: "Failed to list directory", null)
+        }
+    }
+
+    /// Returns the bytes of the image currently on the clipboard, or null.
+    /// All clip items are considered because the image is not always first.
+    private fun handleGetClipboardImage(result: MethodChannel.Result) {
+        try {
+            val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = manager.primaryClip
+            if (clip == null || clip.itemCount == 0) {
+                result.success(null)
+                return
+            }
+            // A clip can hold several items (e.g. text first, image second):
+            // return the first item that actually is an image. Each item is
+            // read defensively: one unreadable item (revoked URI grant, odd
+            // provider) must not fail the whole read.
+            for (i in 0 until clip.itemCount) {
+                try {
+                    val uri = clip.getItemAt(i).uri ?: continue
+                    val mime = try {
+                        contentResolver.getType(uri)
+                    } catch (e: Exception) {
+                        null
+                    }
+                    if (mime != null && !mime.startsWith("image")) {
+                        continue
+                    }
+                    val bytes = try {
+                        contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    } catch (e: Exception) {
+                        null
+                    }
+                    if (bytes != null && bytes.isNotEmpty()) {
+                        result.success(bytes)
+                        return
+                    }
+                } catch (e: Exception) {
+                    // Skip this item and try the next one.
+                    continue
+                }
+            }
+            result.success(null)
+        } catch (e: Exception) {
+            result.error("CLIPBOARD_IMAGE_READ_FAILED", e.message ?: "Failed to read clipboard image", null)
+        }
+    }
+
+    /// Debug description of the current clipboard for the paired-sync
+    /// diagnostic line: how many items, and for each item whether it has
+    /// text and/or a URI (scheme + MIME type only, never the content).
+    private fun handleGetClipboardImageDebug(result: MethodChannel.Result) {
+        try {
+            val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = manager.primaryClip
+            if (clip == null) {
+                result.success("no clip")
+                return
+            }
+            val parts = mutableListOf<String>()
+            for (i in 0 until clip.itemCount) {
+                val item = clip.getItemAt(i)
+                val uri = item.uri
+                val mime = if (uri != null) {
+                    try {
+                        contentResolver.getType(uri) ?: "unknown"
+                    } catch (e: Exception) {
+                        "error"
+                    }
+                } else {
+                    "-"
+                }
+                parts.add("[$i] text=${item.text != null} uri=${uri?.scheme ?: "-"} mime=$mime")
+            }
+            result.success("items=${clip.itemCount}: " + parts.joinToString("; "))
+        } catch (e: Exception) {
+            result.success("debug failed: ${e.message}")
+        }
+    }
+
+    /// Puts an image on the clipboard. The bytes are written to a cache file
+    /// synchronously (the pasteboard plugin compresses on a background thread and
+    /// publishes an empty file), then exposed through our own FileProvider.
+    private fun handleWriteClipboardImage(call: MethodCall, result: MethodChannel.Result) {
+        val bytes = call.arguments<ByteArray>()
+        if (bytes == null || bytes.isEmpty()) {
+            result.error("INVALID_ARGUMENT", "Missing image bytes", null)
+            return
+        }
+
+        try {
+            val file = File(cacheDir, "localsend_clipboard_image.${imageFileExtension(bytes)}")
+            FileOutputStream(file).use { it.write(bytes) }
+            val uri = FileProvider.getUriForFile(this, "$packageName.clipboardprovider", file)
+            val clip = ClipData.newUri(contentResolver, "LocalSend clipboard image", uri)
+            (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
+            result.success(null)
+        } catch (e: Exception) {
+            result.error("CLIPBOARD_IMAGE_WRITE_FAILED", e.message ?: "Failed to write clipboard image", null)
+        }
+    }
+
+    private fun imageFileExtension(bytes: ByteArray): String {
+        fun startsWith(vararg values: Int): Boolean =
+            bytes.size >= values.size && values.indices.all { (bytes[it].toInt() and 0xFF) == values[it] }
+
+        return when {
+            startsWith(0x89, 0x50, 0x4E, 0x47) -> "png"
+            startsWith(0xFF, 0xD8, 0xFF) -> "jpg"
+            startsWith(0x47, 0x49, 0x46, 0x38) -> "gif"
+            startsWith(0x42, 0x4D) -> "bmp"
+            bytes.size >= 12 &&
+                bytes.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) &&
+                bytes.copyOfRange(8, 12).contentEquals("WEBP".toByteArray()) -> "webp"
+            else -> "png"
+        }
     }
 
     private fun isAnimationsEnabled() : Boolean {

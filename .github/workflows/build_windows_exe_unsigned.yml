@@ -6,6 +6,9 @@ on:
 env:
   FLUTTER_VERSION: "3.41.9"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -65,11 +68,45 @@ jobs:
         run: iscc /DSkipSignTool /DSkipMsixHelper "/DPayloadDir=${{ runner.temp }}\inno" "/DResultDir=${{ runner.temp }}\inno-result" support\scripts\compile_windows_exe-inno.iss
 
       - name: Rename installer
-        run: Rename-Item -Path "${{ runner.temp }}\inno-result\localsend.exe" -NewName "LocalSend-${{ needs.build.outputs.version }}-windows-x86-64.exe"
+        run: Rename-Item -Path "${{ runner.temp }}\inno-result\localsend.exe" -NewName "LocalSend-${{ needs.build.outputs.version }}-windows-x64-unsigned.exe"
 
       - name: Upload installer
         uses: actions/upload-artifact@v6
         with:
-          name: windows-exe-x86-64-unsigned
-          path: ${{ runner.temp }}\inno-result\LocalSend-${{ needs.build.outputs.version }}-windows-x86-64.exe
+          name: windows-exe-x86-64-unsigned-${{ needs.build.outputs.version }}
+          path: ${{ runner.temp }}\inno-result\LocalSend-${{ needs.build.outputs.version }}-windows-x64-unsigned.exe
           if-no-files-found: error
+
+      # Every build also lands on the GitHub Releases page (prerelease).
+      # The Android workflow publishes the APK to the same release; the
+      # two usually finish minutes apart, so the release simply gains its
+      # second file when the other build completes.
+      - name: Publish installer to GitHub Release
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          TAG="v$VERSION-paired-sync"
+          cat > release-notes.md <<'EOF'
+          Unofficial fork build of LocalSend with **paired sync** (test builds: Android APK is a debug build, Windows installer is unsigned).
+
+          ### Highlights
+          - Paired sync between trusted devices: pair with the heart button + 6-digit PIN on both devices
+          - Sync with **multiple devices** - each pair syncs independently, content is never forwarded between pairs
+          - Auto **clipboard sync** (text up to 16 KB, images up to 8 MB) both ways
+          - Auto **shared folder sync** both ways (new/changed files; deletions are not synced)
+          - Sync only while the paired device is discovered; offline peers are waited for silently
+
+          ### Downloads
+          - Android: `LocalSend-__VERSION__-debug-arm64.apk` (arm64, debug)
+          - Windows: `LocalSend-__VERSION__-windows-x64-unsigned.exe` (unsigned - Windows SmartScreen may warn; appears here once its build finishes)
+
+          Per-version details are in the pull request / commit history of this fork.
+          EOF
+          sed -i "s/__VERSION__/$VERSION/g" release-notes.md
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "LocalSend Paired Sync v$VERSION" --notes-file release-notes.md || true
+          gh release upload "$TAG" "${{ runner.temp }}/inno-result/LocalSend-$VERSION-windows-x64-unsigned.exe" --clobber
+

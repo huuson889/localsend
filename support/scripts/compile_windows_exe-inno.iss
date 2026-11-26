@@ -12,7 +12,7 @@
 #endif
 
 #define MyAppName "LocalSend"
-#define MyAppVersion "1.19.0"
+#define MyAppVersion "1.19.6"
 #define MyAppPublisher "Tien Do Nam"
 #define MyAppURL "https://localsend.org"
 #define MyAppExeName "localsend_app.exe"

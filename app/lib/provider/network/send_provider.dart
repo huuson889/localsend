@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:localsend_app/model/cross_file.dart';
+import 'package:localsend_app/model/persistence/sync_settings.dart';
 import 'package:localsend_app/model/send_mode.dart';
 import 'package:localsend_app/model/state/send/send_session_state.dart';
 import 'package:localsend_app/model/state/send/sending_file.dart';
@@ -45,6 +46,20 @@ final _logger = Logger('Send');
 final sendProvider = NotifierProvider<SendNotifier, Map<String, SendSessionState>>((ref) {
   return SendNotifier();
 });
+
+/// Whether [files] belong to an automatic paired-sync transfer
+/// (clipboard text/image, folder sync, or the pairing handshake). Those
+/// run silently in the background and must not show transfer progress.
+bool _isBackgroundSyncFiles(Map<String, SendingFile> files) {
+  if (files.isEmpty) {
+    return false;
+  }
+  final names = files.values.map((f) => f.file.fileName).toList();
+  if (names.contains(folderSyncMarkerFileName)) {
+    return true;
+  }
+  return names.every((name) => name == clipboardSyncFileName || name == pairingSyncFileName || isClipboardSyncImageFileName(name));
+}
 
 class SendNotifier extends Notifier<Map<String, SendSessionState>> {
   SendNotifier();
@@ -479,7 +494,10 @@ class SendNotifier extends Notifier<Map<String, SendSessionState>> {
 
     // Keep the process alive for the whole transfer. Started here, while the app is still in the
     // foreground, because Android 12+ rejects starting a foreground service from the background.
-    TransferNotification.start(sessionId: sessionId, receiving: false);
+    // Background paired-sync sessions stay silent: no progress notification.
+    if (!_isBackgroundSyncFiles(sendingFiles)) {
+      TransferNotification.start(sessionId: sessionId, receiving: false);
+    }
 
     await _sendLoop(sessionId, sendingFiles);
   }

@@ -22,6 +22,39 @@
 
 LocalSend is a free, open-source app that allows you to securely share files and messages with nearby devices over your local network without needing an internet connection.
 
+## Fork: Paired Sync
+
+> This is a personal fork of [localsend/localsend](https://github.com/localsend/localsend) that adds **automatic sync between trusted, paired devices**. The upstream code lives on the `main` branch; all added features are developed on a separate branch (see the table below) in [PR #2](https://github.com/huuson889/localsend/pull/2).
+
+### Branches
+
+| Branch | Role |
+| --- | --- |
+| `main` | Upstream LocalSend code. Already includes the first paired-sync iteration via the merged PR #1. |
+| `arena/47011167-localsend` | **Current development branch** — all paired-sync features below ([PR #2](https://github.com/huuson889/localsend/pull/2), open, not yet merged into `main`). |
+
+Latest version: **1.19.6**. Prebuilt binaries (Android APK + Windows EXE, prereleases) are available on the [Releases](https://github.com/huuson889/localsend/releases) page — tags look like `v<version>-paired-sync`.
+
+### Features added on top of upstream
+
+- **Pairing with a 6-digit PIN** between two devices (the ♥ button on the Send tab). Supports **multiple independent pairs**: A↔B and A↔C sync separately, and content received from one device is never forwarded to another.
+- **Two-way clipboard sync**: copying text or an image automatically sends it to the paired devices (on Android: copy, then open LocalSend once so the app can read the clipboard).
+- **Automatic Android screenshot sync**: new screenshots are sent to the paired devices without copying them first (picked up from the photo library, requires photo-access permission; separate opt-in toggle).
+- **Two-way shared folder sync**: new/changed files in the selected folder sync automatically to the paired devices, preserving subfolders (deletions are not synced).
+- **"Paired sync" master switch** at the top of the Paired Sync settings page: on by default once a device is paired; turning it off pauses all sync and silently declines incoming sync sessions, and turning it back on resumes with the previous per-feature configuration untouched.
+- **Windows Explorer context menu**: right-click files or folders and choose **"Send with LocalSend"** (plus the classic *Send to* entry), enabled from Settings → "Show LocalSend in context menu".
+- **Safety & anti-spam rules**: sync only happens when both devices paired each other *and* both enabled the same feature; content that existed before setup is never sent (baseline); sync is only attempted while the peer is discovered online; background sessions run silently (no dialogs, no progress notifications).
+
+Current limits: clipboard text ≤ 16 KB, images ≤ 8 MB. On Android, an integrated foreground service keeps sync alive while the app is in the background.
+
+### Quick start
+
+1. Install the same version from [Releases](https://github.com/huuson889/localsend/releases) on both devices, on the same Wi-Fi/LAN.
+2. On the **Send** tab, tap ♥ on the other device and confirm the same 6-digit PIN on both devices.
+3. Open the **Paired Sync** tab and enable the features you want (clipboard / shared folder / screenshots) on *both* devices.
+4. Copy something, take a screenshot, or drop a file into the shared folder — it appears on the other device automatically.
+
+- [Fork: Paired Sync](#fork-paired-sync)
 - [About](#about)
 - [Sponsors](#sponsors)
 - [Screenshots](#screenshots)

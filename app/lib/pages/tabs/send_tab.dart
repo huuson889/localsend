@@ -8,12 +8,16 @@ import 'package:localsend_app/pages/selected_files_page.dart';
 import 'package:localsend_app/pages/tabs/send_tab_vm.dart';
 import 'package:localsend_app/pages/troubleshoot_page.dart';
 import 'package:localsend_app/provider/animation_provider.dart';
+import 'package:localsend_app/provider/favorites_provider.dart';
 import 'package:localsend_app/provider/file_transfer_provider.dart';
 import 'package:localsend_app/provider/network/nearby_devices_provider.dart';
 import 'package:localsend_app/provider/network/scan_facade.dart';
 import 'package:localsend_app/provider/network/send_provider.dart';
 import 'package:localsend_app/provider/selection/selected_sending_files_provider.dart';
 import 'package:localsend_app/provider/settings_provider.dart';
+import 'package:localsend_app/provider/sync/background_sync.dart';
+import 'package:localsend_app/provider/sync/pairing_service.dart';
+import 'package:localsend_app/provider/sync_settings_provider.dart';
 import 'package:localsend_app/util/favorites.dart';
 import 'package:localsend_app/util/native/file_picker.dart';
 import 'package:localsend_app/util/native/platform_check.dart';
@@ -224,6 +228,54 @@ class SendTab extends StatelessWidget {
                           device: device,
                           isFavorite: favoriteEntry != null,
                           nameOverride: favoriteEntry?.alias,
+                          onFavoriteTap: device.ip == null
+                              ? null
+                              : () async {
+                                  if (favoriteEntry != null) {
+                                    // Removing a sync peer would silently
+                                    // break auto sync with it: ask first.
+                                    if (ref.read(syncSettingsProvider).isSyncPeer(device.fingerprint)) {
+                                      final isVi = Localizations.localeOf(context).languageCode == 'vi';
+                                      final confirmed = await showDialog<bool>(
+                                            context: context,
+                                            builder: (dialogContext) => AlertDialog(
+                                              title: Text(isVi ? 'Bỏ ghép cặp?' : 'Remove pairing?'),
+                                              content: Text(
+                                                isVi
+                                                    ? '${device.alias} đang là thiết bị cặp đồng bộ. Bỏ yêu thích sẽ tắt đồng bộ với thiết bị này.'
+                                                    : '${device.alias} is your sync peer. Removing the favorite will stop sync with this device.',
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                                                  child: Text(isVi ? 'Huỷ' : 'Cancel'),
+                                                ),
+                                                FilledButton(
+                                                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                                                  child: Text(isVi ? 'Bỏ ghép' : 'Remove'),
+                                                ),
+                                              ],
+                                            ),
+                                          ) ??
+                                          false;
+                                      if (!confirmed) {
+                                        return;
+                                      }
+                                    }
+                                    await ref.redux(favoritesProvider).dispatchAsync(RemoveFavoriteAction(deviceFingerprint: device.fingerprint));
+                                    if (ref.read(syncSettingsProvider).isSyncPeer(device.fingerprint)) {
+                                      await ref.notifier(syncSettingsProvider).removeSyncPeerFingerprint(device.fingerprint);
+                                      updateSyncBackgroundService(ref);
+                                    }
+                                  } else {
+                                    // Pairing (PIN): the device is only
+                                    // favorited + set as sync peer after
+                                    // the other side confirms the same PIN
+                                    // (see PairingService). The pairing
+                                    // dialog is shown globally by HomePage.
+                                    await ref.notifier(pairingProvider).startPairing(device);
+                                  }
+                                },
                           onDetailsTap: () async => await context.push(() => DeviceDetailsPage(device: device)),
                           onTap: () async => await vm.onTapDevice(context, device),
                         ),

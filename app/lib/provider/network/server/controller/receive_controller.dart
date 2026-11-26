@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:collection/collection.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:localsend_app/model/persistence/sync_settings.dart';
 import 'package:localsend_app/model/state/server/receive_session_state.dart';
@@ -26,12 +25,14 @@ import 'package:localsend_app/provider/selection/selected_sending_files_provider
 import 'package:localsend_app/provider/settings_provider.dart';
 import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
 import 'package:localsend_app/provider/sync/folder_sync_service.dart';
+import 'package:localsend_app/provider/sync/pairing_service.dart';
 import 'package:localsend_app/provider/sync_settings_provider.dart';
 import 'package:localsend_app/util/message_preview.dart';
+import 'package:localsend_app/util/native/channel/android_channel.dart' as android_channel;
 import 'package:localsend_app/util/native/directories.dart';
 import 'package:localsend_app/util/native/platform_check.dart';
 import 'package:localsend_app/util/native/tray_helper.dart';
-import 'package:localsend_app/util/ui/snackbar.dart';
+import 'package:localsend_app/util/ui/sync_toast.dart';
 import 'package:localsend_app/widget/dialogs/open_file_dialog.dart';
 import 'package:localsend_isolates/isolate.dart';
 import 'package:localsend_isolates/model/device.dart';
@@ -42,6 +43,7 @@ import 'package:localsend_isolates/rust/api/server.dart' show SessionEndReasonV2
 import 'package:localsend_isolates/util/rust.dart';
 import 'package:localsend_isolates/util/transfer_notification.dart';
 import 'package:logging/logging.dart';
+import 'package:pasteboard/pasteboard.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:refena_flutter/refena_flutter.dart';
 import 'package:routerino/routerino.dart';
@@ -96,20 +98,33 @@ class ReceiveController {
     final senderFingerprint = event.certFingerprint ?? event.info.fingerprint;
     final senderAlias = server.ref.read(favoritesProvider).firstWhereOrNull((e) => e.fingerprint == senderFingerprint)?.alias ?? event.info.alias;
 
-    // Paired-device sync: only the selected trusted peer can trigger it.
-    // Clipboard sync reuses the message transfer (fixed file name + preview).
-    // Folder sync saves straight into the shared folder and auto-accepts.
-    // Manual text messages from the peer are excluded so they still show the
-    // normal receive dialog.
-    final isSyncPeer = syncSettings.syncPeerFingerprint != null && syncSettings.syncPeerFingerprint == senderFingerprint;
-    final isClipboardSync = isSyncPeer && syncSettings.clipboardSyncEnabled && files.length == 1 && files.values.first.fileName == clipboardSyncFileName;
-    final isFolderSync = isSyncPeer &&
-        syncSettings.folderSyncEnabled &&
-        syncSettings.syncFolderPath != null &&
-        !isClipboardSync &&
-        !isMessageRequestOf(files.values);
+    // Paired-device sync: only a paired trusted peer can trigger it,
+    // and only for features this device has enabled as well (consent is
+    // mutual per pair: both devices must pair each other and enable the
+    // same feature). Clipboard sync reuses the message transfer (fixed file
+    // name + preview); folder sync carries a marker file and saves straight
+    // into the shared folder. Sync attempts without local consent are
+    // declined silently further below instead of showing the receive dialog.
+    final isSyncPeer = syncSettings.isSyncPeer(senderFingerprint);
+    final wantsClipboardText = files.length == 1 && files.values.first.fileName == clipboardSyncFileName;
+    final wantsClipboardImage = files.length == 1 && isClipboardSyncImageFileName(files.values.first.fileName);
+    final hasFolderSyncMarker = files.values.any((f) => f.fileName == folderSyncMarkerFileName);
+    final clipboardConsent = isSyncPeer && syncSettings.pairedSyncEnabled && syncSettings.clipboardSyncEnabled;
+    final folderConsent = isSyncPeer && syncSettings.pairedSyncEnabled && syncSettings.folderSyncEnabled && syncSettings.syncFolderPath != null;
+    final isClipboardSync = clipboardConsent && wantsClipboardText;
+    final isClipboardImageSync = clipboardConsent && wantsClipboardImage;
+    // Pairing (PIN) handshake: a single text file with a fixed name whose
+    // preview carries the payload. Handled before everything else and
+    // never shown as a regular receive.
+    final pairingPayload = files.length == 1 && files.values.first.fileName == pairingSyncFileName ? files.values.first.preview : null;
+    final isFolderSync = folderConsent && hasFolderSyncMarker && !isClipboardSync && !isClipboardImageSync && !isMessageRequestOf(files.values);
+    final isUnconsentedSync = ((wantsClipboardText || wantsClipboardImage) && !clipboardConsent) || (hasFolderSyncMarker && !folderConsent);
 
-    final destinationDir = isFolderSync ? syncSettings.syncFolderPath! : (settings.destination ?? await getDefaultDestinationDirectory());
+    final destinationDir = isFolderSync
+        ? syncSettings.syncFolderPath!
+        : isClipboardImageSync
+        ? cacheDir
+        : (settings.destination ?? await getDefaultDestinationDirectory());
 
     _logger.info('Session Id: $sessionId');
     _logger.info('Destination Directory: $destinationDir');
@@ -136,7 +151,7 @@ class ReceiveController {
           endTime: null,
           destinationDirectory: destinationDir,
           cacheDirectory: cacheDir,
-          saveToGallery: !isFolderSync && checkPlatformWithGallery() && settings.saveToGallery && files.values.every((f) => !f.fileName.contains('/')),
+          saveToGallery: !isFolderSync && !isClipboardImageSync && checkPlatformWithGallery() && settings.saveToGallery && files.values.every((f) => !f.fileName.contains('/')),
           createdDirectories: {},
         ),
       ),
@@ -149,29 +164,71 @@ class ReceiveController {
           statuses: {for (final file in files.values) file.id: FileStatus.queue},
         );
 
+    if (pairingPayload != null) {
+      server.ref.notifier(pairingProvider).handlePayload(
+            sender: event.info.toDevice(event.ip, withChannel: true).copyWith(fingerprint: senderFingerprint),
+            payload: pairingPayload,
+          );
+      // Accept nothing: the payload already arrived as the preview.
+      await acceptFileRequest({});
+      return;
+    }
+
+    if (isUnconsentedSync) {
+      // Automatic sync from a device this device has not agreed with (not
+      // paired back, or the feature is off here): decline silently. The
+      // sender treats this as "not consented" and stops re-offering the
+      // same content instead of spamming this device with dialogs.
+      _logger.info('Declined unconsented sync session from $senderAlias');
+      declineFileRequest();
+      return;
+    }
+
     if (isClipboardSync) {
       // The text already arrived as the message preview: apply it to the
       // clipboard and accept nothing (no file upload needed).
       final preview = files.values.first.preview;
       if (preview != null) {
+        showSyncToastLocalized(en: 'Receiving clipboard text from $senderAlias…', vi: 'Đang nhận clipboard chữ từ $senderAlias…');
         try {
           await Clipboard.setData(ClipboardData(text: preview));
           server.ref.notifier(clipboardSyncProvider).markReceived(preview);
+          // The peer proved it paired us and enabled clipboard sync too.
+          await server.ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(senderFingerprint, true);
           _logger.info('Clipboard synced from $senderAlias');
-          Routerino.context.showSnackBar('Clipboard synced from $senderAlias');
+          showSyncToastLocalized(en: 'Clipboard text synced from $senderAlias', vi: 'Đã đồng bộ clipboard chữ từ $senderAlias');
         } catch (e) {
           _logger.warning('Failed to apply synced clipboard: $e');
+          showSyncToastLocalized(en: 'Clipboard text sync failed', vi: 'Đồng bộ clipboard chữ thất bại');
         }
       }
       await acceptFileRequest({});
       return;
     }
 
-    if (isFolderSync) {
-      // Save straight into the shared folder without any dialog or progress
-      // page. Completion is handled in [onFileUploadResult].
+    if (isClipboardImageSync) {
+      showSyncToastLocalized(en: 'Receiving clipboard image from $senderAlias…', vi: 'Đang nhận clipboard hình ảnh từ $senderAlias…');
+      // The image is saved into the cache directory first; it is written to
+      // the clipboard (and the transport copy deleted) once the upload
+      // finishes, see [onFileUploadResult].
       await acceptFileRequest({
         for (final f in files.values) f.id: f.fileName,
+      });
+      return;
+    }
+
+    if (isFolderSync) {
+      final syncFileCount = files.values.where((f) => f.fileName != folderSyncMarkerFileName).length;
+      showSyncToastLocalized(
+        en: 'Receiving $syncFileCount folder file(s) from $senderAlias…',
+        vi: 'Đang nhận $syncFileCount file thư mục từ $senderAlias…',
+      );
+      // Save straight into the shared folder without any dialog or progress
+      // page. The marker file is skipped (never saved). Completion is
+      // handled in [onFileUploadResult].
+      await acceptFileRequest({
+        for (final f in files.values)
+          if (f.fileName != folderSyncMarkerFileName) f.id: f.fileName,
       });
       return;
     }
@@ -465,21 +522,73 @@ class ReceiveController {
       final syncSettings = server.ref.read(syncSettingsProvider);
       final isFolderSyncSession = syncSettings.folderSyncEnabled &&
           syncSettings.syncFolderPath != null &&
-          syncSettings.syncPeerFingerprint != null &&
-          syncSettings.syncPeerFingerprint == session.sender.fingerprint &&
+          syncSettings.isSyncPeer(session.sender.fingerprint) &&
           session.destinationDirectory == syncSettings.syncFolderPath;
+      // Clipboard image sync sessions also finish silently: apply the image
+      // to the clipboard and remove the transport copy from the cache.
+      final isClipboardImageSession = syncSettings.clipboardSyncEnabled &&
+          syncSettings.isSyncPeer(session.sender.fingerprint) &&
+          session.files.length == 1 &&
+          isClipboardSyncImageFileName(session.files.values.first.file.fileName) &&
+          session.destinationDirectory == session.cacheDirectory;
+      if (isClipboardImageSession) {
+        final savedPath = session.files.values.first.path;
+        var applied = false;
+        if (!hasError && savedPath != null) {
+          try {
+            final bytes = await File(savedPath).readAsBytes();
+            // On Android the pasteboard plugin's writeImage is unreliable
+            // (it can publish an empty file and never completes), so use the
+            // app's own platform channel there.
+            if (checkPlatform([TargetPlatform.android])) {
+              await android_channel.writeClipboardImageAndroid(bytes);
+            } else {
+              await Pasteboard.writeImage(bytes);
+            }
+            server.ref.notifier(clipboardSyncProvider).markReceivedImage(bytes);
+            await server.ref.notifier(syncSettingsProvider).setClipboardPeerConfirmed(session.sender.fingerprint, true);
+            applied = true;
+            _logger.info('Clipboard image synced from ${session.senderAlias}');
+            await File(savedPath).delete();
+          } catch (e) {
+            _logger.warning('Failed to apply synced clipboard image: $e');
+          }
+        }
+        Future.delayed(Duration.zero, () {
+          closeSession();
+          if (applied) {
+            showSyncToastLocalized(
+              en: 'Clipboard image synced from ${session.senderAlias}',
+              vi: 'Đã đồng bộ clipboard hình ảnh từ ${session.senderAlias}',
+            );
+          } else {
+            showSyncToastLocalized(en: 'Clipboard image sync failed', vi: 'Đồng bộ clipboard hình ảnh thất bại');
+          }
+        });
+        return;
+      }
       if (isFolderSyncSession) {
         // Only successfully saved files are marked, so failed files are
         // retried on the next poll instead of being lost.
-        server.ref.notifier(folderSyncProvider).markReceived([
+        await server.ref.notifier(folderSyncProvider).markReceived([
           for (final f in session.files.values)
             if (f.path != null) f.file.fileName,
         ]);
+        if (!hasError) {
+          // The peer proved it paired us and enabled folder sync too.
+          await server.ref.notifier(syncSettingsProvider).setFolderPeerConfirmed(session.sender.fingerprint, true);
+        }
+        final receivedCount = session.files.values.where((f) => f.path != null).length;
         Future.delayed(Duration.zero, () {
           closeSession();
-          Routerino.context.showSnackBar(
-            hasError ? 'Folder sync finished with errors' : 'Folder synced from ${session.senderAlias}',
-          );
+          if (hasError) {
+            showSyncToastLocalized(en: 'Folder sync finished with errors', vi: 'Đồng bộ thư mục xong nhưng có lỗi');
+          } else {
+            showSyncToastLocalized(
+              en: 'Received $receivedCount folder file(s) from ${session.senderAlias}',
+              vi: 'Đã nhận $receivedCount file thư mục từ ${session.senderAlias}',
+            );
+          }
         });
         _logger.info('Folder sync session finished.');
         return;
@@ -665,7 +774,13 @@ class ReceiveController {
     //   from the background,
     // - the service may ask for the notification permission, which Android cancels when it overlaps
     //   with the storage permission requests above.
-    TransferNotification.start(sessionId: session.sessionId, receiving: true);
+    // Background paired-sync sessions stay silent: they never take over the
+    // notification with transfer progress (the keep-alive content stays,
+    // and there is no progress notification that could be left behind).
+    final syncSettings = server.ref.read(syncSettingsProvider);
+    if (!_isBackgroundSyncSession(session, syncSettings)) {
+      TransferNotification.start(sessionId: session.sessionId, receiving: true);
+    }
 
     // From here on, the server isolate receives all accepted files on its own
     // and reports back via upload progress/result events.
@@ -676,6 +791,23 @@ class ReceiveController {
     server.ref
         .redux(parentIsolateProvider)
         .dispatch(IsolateHttpServerPrepareUploadDecisionAction(config: _buildReceiveConfig(updatedSession, fileNameMap)));
+  }
+
+  /// Whether [session] is an automatic paired-sync transfer (clipboard
+  /// image or folder sync) from a paired peer. Those run silently in the
+  /// background, unlike manual sends the user explicitly accepted.
+  bool _isBackgroundSyncSession(ReceiveSessionState session, SyncSettings syncSettings) {
+    if (!syncSettings.pairedSyncEnabled || !syncSettings.isSyncPeer(session.sender.fingerprint)) {
+      return false;
+    }
+    final fileNames = session.files.values.map((f) => f.file.fileName).toList();
+    if (syncSettings.clipboardSyncEnabled && fileNames.length == 1 && isClipboardSyncImageFileName(fileNames.first)) {
+      return true;
+    }
+    if (syncSettings.folderSyncEnabled && fileNames.contains(folderSyncMarkerFileName)) {
+      return true;
+    }
+    return false;
   }
 
   HttpServerReceiveConfig _buildReceiveConfig(ReceiveSessionState session, Map<String, String> fileNameMap) {

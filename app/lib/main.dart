@@ -9,6 +9,9 @@ import 'package:localsend_app/pages/home_page.dart';
 import 'package:localsend_app/provider/local_ip_provider.dart';
 import 'package:localsend_app/provider/network/server/server_provider.dart';
 import 'package:localsend_app/provider/settings_provider.dart';
+import 'package:localsend_app/provider/sync/background_sync.dart';
+import 'package:localsend_app/provider/sync/clipboard_sync_service.dart';
+import 'package:localsend_app/provider/sync/folder_sync_service.dart';
 import 'package:localsend_app/util/native/platform_check.dart';
 import 'package:localsend_app/util/ui/dynamic_colors.dart';
 import 'package:localsend_app/widget/watcher/life_cycle_watcher.dart';
@@ -72,6 +75,22 @@ class LocalSendApp extends StatelessWidget {
                   // The multicast sockets die the same silent way but cannot be probed, so always rebind them.
                   ref.redux(parentIsolateProvider).dispatch(IsolateDiscoveryRestartAction());
                 }
+                // Paired sync: catch up right away instead of waiting for the next poll tick
+                // (the OS may have paused the timers while the app was suspended).
+                // ignore: discarded_futures
+                ref.notifier(clipboardSyncProvider).pollNow();
+                // Android grants clipboard reads only once the window has
+                // focus, which can lag the resume event: poll once more a
+                // moment later so a copy made in another app is picked up.
+                if (checkPlatform([TargetPlatform.android])) {
+                  Future.delayed(const Duration(milliseconds: 700), () {
+                    // ignore: discarded_futures
+                    ref.notifier(clipboardSyncProvider).pollNow();
+                  });
+                }
+                // ignore: discarded_futures
+                ref.notifier(folderSyncProvider).pollNow();
+                updateSyncBackgroundService(ref);
                 break;
               case AppLifecycleState.detached:
                 // The main isolate is only exited when all child isolates are exited.
